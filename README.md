@@ -184,7 +184,7 @@ Check:
 
 ### Error message "Done, but these paragraphs were skipped because the word sequence could not be aligned safely"
 
-This error message occur when the model outputs extra words or otherwise reorders the claim wording. Consider lowering temperature, using a better model, or add even more explicit instructions to the prompt. The Goolge Gemma-4 models are a good reference point. If you keep seeing this issue with a reasonble precise model, contact the developer.
+This error message occurs when the model outputs extra words or otherwise reorders the claim wording. Consider lowering temperature, using a better model, or add even more explicit instructions to the prompt. The Google Gemma-4 models are a good reference point. If you keep seeing this issue with a reasonable precise model, contact the developer.
 
 ### Repository contents
 
@@ -217,6 +217,8 @@ This was a project for my own needs and is considered finished for as long as I 
 ## Support
 You can support the developer by buying him a coffee. One-time and regular donations are very welcome: [Buy me a coffee](buymeacoffee.com/tftranslate).
 
+You can contact me at t.ernst@tf-translate.net.
+
 ## License
 This project is licensed under the [MIT License](LICENSE).
 
@@ -236,10 +238,5 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
