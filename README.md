@@ -42,7 +42,7 @@ The settings dialog lets the user configure the model connection and request beh
 - **OpenAI compatible URL** — base URL including host and port, for example `http://127.0.0.1:8080`.
 - **API Key** — optional; can be left empty.
 - **Model name** — entered manually, use exactly as advertised by your llama.cpp under /v1/models. If in doubt to a "curl $URL/v1/models and look for the advertised "id". Auto-discovery is planned for a follow up release.
-- **Temperature** — floating-point value using a dot, for claim insertion use a low one such as `0.2`. Accepts digits plus one dot.
+- **Temperature** — floating-point value using a dot, for reference sign insertion use a low one such as `0.2`. Accepts digits plus one dot.
 - **Timeout** — integer value in seconds. In non-thinking mode 120 should be sufficient, raise if you plan to use thinking mode to up to 600 (10 minutes). Accepts only integer values.
 - **Max. Tokens** — integer token limit. Upper limit is your model's context window size.
 - **Thinking** — checkbox that controls whether `chat_template_kwargs` enables thinking mode. In my experience this is not required for sufficiently smart models. Thinking mode will considerably slow down the process.
