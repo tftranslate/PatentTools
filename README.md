@@ -6,14 +6,16 @@ At the present time, the tool supports inserting patent reference signs into cla
 
 This add-in has been validated to work reasonably well and fast in English as well as non-English languages when using **gemma-4 26b** in **non-thinking mode** via an OpenAI-compatible server endpoint provided by llama.cpp running on a DGX Spark.
 
-All changes applied by the plugin, i.e. the references signs inserted, are marked up in track changes mode so you can be sure the model does not modify the claims.
+All changes applied by the plugin, i.e. the reference signs inserted, are marked up in track changes mode so you can be sure the model does not modify the claims in any unintended way.
+
+Further features may be added in the future.
 
 ## What it does
 
 Patent Tools is designed to:
 
 - Read the current selection, or the whole document if nothing is selected.
-- Let you enter a list of reference signs (extracting reference signs is currently out of scope, you could jsut upload the description into a chatbot and ask it to prepare a list) in free format along with any custom prompts.
+- Let you enter a list of reference signs (extracting reference signs is currently out of scope, you could just upload the description into a chatbot and ask it to prepare a list) in free format along with any custom prompts.
 - Use any OpenAI-compatible chat-completions endpoint to produce a version of the claims from the current selection or whole documents with reference signs inserted.
 - Insert the returned reference signs into the Word document using Track Changes without altering anything else.
 - Keep formatting and punctuation intact as far as possible through conservative alignment logic.
@@ -117,7 +119,6 @@ If the file was downloaded from the internet, Windows may block it. In that case
 Patent Tools expects an **OpenAI-compatible** chat-completions API. The macro currently posts to:
 
 ```
-text
 <base-url>/v1/chat/completions
 ```
 
@@ -133,7 +134,6 @@ The request includes:
 If an API key is provided, the macro sends:
 
 ```
-text
 Authorization: Bearer <API key>
 ```
 
@@ -157,7 +157,6 @@ A practical confidential setup is:
 Example base URL:
 
 ```
-text
 http://127.0.0.1:8080
 ```
 
@@ -209,14 +208,14 @@ This project currently provides a working Word add-in with:
 - and a claim-processing workflow validated with gemma-4 26b in non-thinking mode.
 
 ## Todo
-This was a project for my own needs and is considered finished for now, but I am happy to develop it further help others if I see this is really needed. Buy me a coffee to incrase my motiviation! The following this are worth improving
+This was a project for my own needs and is considered finished for as long as I am happy with it. However, I am also  to develop it further and help others if I see there is demand. Buy me a coffee to incrase my motiviation! The following things would probably be worth improving:
 
-- autodectection of available models rahter than having to type in the model name by hand
-- other APi types, in particular Ollama
-- a feature to automatically extract the list of reference signs from the description in case it is available
+- autodectection of available models rahter than having to type in the model name by hand,
+- other API types, in particular Ollama,
+- a feature to automatically extract the list of reference signs from the description in case it is available (at present, you need do this by hand with your chatbot).
 
 ## Support
-You can support the developer by buying him a coffee. One-time and regular donations are very welcome: buymeacoffee.com/tftranslate
+You can support the developer by buying him a coffee. One-time and regular donations are very welcome: [Buy me a coffee](buymeacoffee.com/tftranslate).
 
 ## License
 This project is licensed under the [MIT License](LICENSE).
