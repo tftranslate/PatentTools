@@ -23,13 +23,13 @@ Only enable this option on a trusted development machine.
 ## Build
 
 1. Ensure that all Word windows and VBA Editor windows are closed.
-2. Double-click (or open a CMD terminal and execute):
+2. Double-click:
 
    ```text
    Build-PatentTools.cmd
    ```
 
-3. Wait for the command window to report `BUILD SUCESSFUL`.
+3. Wait for the command window to report `BUILD ERFOLGREICH`.
 
 The generated template is written to:
 

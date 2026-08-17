@@ -11,16 +11,24 @@
             supertip="Insert reference signs into the current selection or document."
             onAction="PatentTools_InsertReferenceSigns" />
         </group>
-        <group id="grpConfiguration" label="Configuration">
-          <button
-            id="btnPatentToolsSettings"
-            label="Settings"
-            size="large"
-            imageMso="ControlProperties"
-            screentip="Settings"
-            supertip="Open Patent Tools settings."
-            onAction="PatentTools_OpenSettings" />
-        </group>
+	<group id="grpConfiguration" label="Configuration">
+	  <button
+	    id="btnPatentToolsSettings"
+	    label="Settings"
+	    size="large"
+	    imageMso="ControlProperties"
+	    screentip="Settings"
+	    supertip="Open Patent Tools settings."
+	    onAction="PatentTools_OpenSettings" />
+	  <button
+	    id="btnPatentToolsAbout"
+	    label="About"
+	    size="large"
+	    imageMso="Help"
+	    screentip="About Patent Tools"
+	    supertip="Show information about Patent Tools."
+	    onAction="PatentTools_About" />
+	</group>        
       </tab>
     </tabs>
   </ribbon>

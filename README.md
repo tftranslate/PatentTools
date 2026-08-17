@@ -1,10 +1,14 @@
-# Patent Tools for Microsoft Word v. 0.1.0
+# Patent Tools for Microsoft Word v. 0.1.1
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 Patent Tools is a Microsoft Word `.dotm` add-in for connecting Microsoft Word to a locally deployed OpenAI compatible OpenAI-compatible language model endpoint.
 
 At the present time, the tool supports inserting patent reference signs into claim text. Unlike existing solutions, it supports any language supported by the model and will happily deal with inflected languages such as German, French and others. It is packaged as a self-contained Word template add-in with a custom Ribbon tab.
 
-This add-in has been validated to work reasonably well and fast in English as well as non-English languages when using **gemma-4 26b** in **non-thinking mode** via an OpenAI-compatible server endpoint provided by llama.cpp running on a DGX Spark.
+This add-in has been validated to work reasonably well and fast in English as well as non-English languages with edge models hosted by llama.cpp on reasonably modern hardware.
+
+Specifically, Gemma4 E4B at UD_Q4_K_XL, which performs well on notebooks with Radeon graphics using llama.cpp with vulkan, copes well at temperature 0.2 in non-thinking mode, so does any larger Gemma4 variant (26B A4B or 31B). The milage with Qwen varies; a successful test was performed with Qwen3.8-27B in NVFP4 quantization and non-thinking mode on a DGX Spark, while the smaller Qwen 3.5 9B and 3B variants failed the test.
 
 All changes applied by the plugin, i.e. the reference signs inserted, are marked up in track changes mode so you can be sure the model does not modify the claims in any unintended way.
 
@@ -39,9 +43,9 @@ After installation, Word shows a custom Ribbon tab named **Patent Tools**. The t
 
 The settings dialog lets the user configure the model connection and request behavior. The current version includes these fields:
 
-- **OpenAI compatible URL** — base URL including host and port, for example `http://127.0.0.1:8080`.
-- **API Key** — optional; can be left empty.
-- **Model name** — entered manually, use exactly as advertised by your llama.cpp under /v1/models. If in doubt to a "curl $URL/v1/models and look for the advertised "id". Auto-discovery is planned for a follow up release.
+- **OpenAI compatible URL** — base URL including host and port, for example `http://127.0.0.1:11434` if you are hosting with Ollama, or`https://api.openai.com/v1` for a ChatGPT API subscription.
+- **API Key** — optional; can usually be left empty if you use Ollama or llama.cpp for self-hosting.
+- **Model name** — entered manually, use exactly as advertised by your llama.cpp under /v1/models. If in doubt to a "curl $URL/v1/models and look for the advertised "id". If you use ChatGPT, try "gpt-4o". Auto-discovery is planned for a follow up release.
 - **Temperature** — floating-point value using a dot, for reference sign insertion use a low one such as `0.2`. Accepts digits plus one dot.
 - **Timeout** — integer value in seconds. In non-thinking mode 120 should be sufficient, raise if you plan to use thinking mode to up to 600 (10 minutes). Accepts only integer values.
 - **Max. Tokens** — integer token limit. Upper limit is your model's context window size.
@@ -110,9 +114,9 @@ If the file was downloaded from the internet, Windows may block it. In that case
 2. Open the **Patent Tools** tab.
 3. Click **Settings** and configure the endpoint.
 4. Prepare a reference-sign table in any format that would be understood by our model.
-5. Select the relevant claim text, or leave nothing selected to process the full document.
-6. Click **Insert reference signs**.
-7. Paste the previously prepared reference sign table into the dialog. You may also add any special prompts in difficult cases where the model should pay attention on how to do things the way you want.
+5. Select the relevant claim text in your currently open document, or leave nothing selected to process the full document (not recommended)
+6. Click **Insert reference signs** in the Patent Tools ribbon.
+7. Paste the previously prepared reference sign table into the dialog. **Please note**: If you use a smart model, you may also add any special prompts in difficult cases where the model should pay attention on how to do things the way you want.
 8. The status bar (windows button shows elapsed time to indicate work in progress).
 9. Review the inserted changes in Track Changes mode.
 
@@ -153,16 +157,16 @@ If the API key field is blank, no Authorization header is sent.
 A practical confidential setup is:
 
 - Microsoft Word with `PatentTools.dotm` in the Startup folder.
-- A local OpenAI-compatible server, such as `llama.cpp`.
+- A local OpenAI-compatible server, such as `llama.cpp` or Ollama.
 - A model validated for this workflow, such as gemma-4 26b in non-thinking mode.
 
 Example base URL:
 
 ```
-http://127.0.0.1:8080
+http://127.0.0.1:11434
 ```
 
-The add-in will normalize the base URL and call the chat-completions endpoint automatically.
+The add-in will normalize the base URL and call the chat-completions endpoint at `/v1` automatically.
 
 ## Troubleshooting
 
@@ -212,8 +216,7 @@ This project currently provides a working Word add-in with:
 ## Todo
 This was a project for my own needs and is considered finished for as long as I am happy with it. However, I am also  to develop it further and help others if I see there is demand. Buy me a coffee to incrase my motiviation! The following things would probably be worth improving:
 
-- autodectection of available models rahter than having to type in the model name by hand,
-- other API types, in particular Ollama,
+- autodectection of available models rather than having to type in the model name by hand,
 - a feature to automatically extract the list of reference signs from the description in case it is available (at present, you need do this by hand with your chatbot).
 
 ## Support

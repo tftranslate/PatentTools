@@ -13,11 +13,28 @@ Public gDebug As Boolean
 Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
+Public Function ParseDotDouble(ByVal s As String) As Double
+    Dim localDecimal As String
+
+    s = Trim$(s)
+    localDecimal = Mid$(CStr(1.1), 2, 1)
+
+    ParseDotDouble = CDbl(Replace(s, ".", localDecimal))
+End Function
+
+Public Function FormatDotDouble(ByVal value As Double) As String
+    Dim localDecimal As String
+
+    localDecimal = Mid$(CStr(1.1), 2, 1)
+
+    FormatDotDouble = Replace(CStr(value), localDecimal, ".")
+End Function
+
 Public Sub LoadPatentToolsSettings()
-    gApiUrl = GetSetting(APP_NAME, SECTION_NAME, "ApiUrl", "https://api.openai.com/v1")
+    gApiUrl = GetSetting(APP_NAME, SECTION_NAME, "ApiUrl", "http://localhost:11434")
     gApiKey = GetSetting(APP_NAME, SECTION_NAME, "ApiKey", "")
-    gModelName = GetSetting(APP_NAME, SECTION_NAME, "ModelName", "gpt-4o")
-    gTemperature = CDbl(GetSetting(APP_NAME, SECTION_NAME, "Temperature", "0.2"))
+    gModelName = GetSetting(APP_NAME, SECTION_NAME, "ModelName", "gemma4:12b")
+    gTemperature = ParseDotDouble(GetSetting(APP_NAME, SECTION_NAME, "Temperature", "0.2"))
     gTimeoutSec = CLng(GetSetting(APP_NAME, SECTION_NAME, "TimeoutSec", "120"))
     gMaxTokens = CLng(GetSetting(APP_NAME, SECTION_NAME, "MaxTokens", "32768"))
     gThinking = CBool(Val(GetSetting(APP_NAME, SECTION_NAME, "Thinking", "0")))
@@ -28,7 +45,7 @@ Public Sub SavePatentToolsSettings()
     SaveSetting APP_NAME, SECTION_NAME, "ApiUrl", gApiUrl
     SaveSetting APP_NAME, SECTION_NAME, "ApiKey", gApiKey
     SaveSetting APP_NAME, SECTION_NAME, "ModelName", gModelName
-    SaveSetting APP_NAME, SECTION_NAME, "Temperature", Replace(CStr(gTemperature), ",", ".")
+    SaveSetting APP_NAME, SECTION_NAME, "Temperature", FormatDotDouble(gTemperature)
     SaveSetting APP_NAME, SECTION_NAME, "TimeoutSec", CStr(gTimeoutSec)
     SaveSetting APP_NAME, SECTION_NAME, "MaxTokens", CStr(gMaxTokens)
     SaveSetting APP_NAME, SECTION_NAME, "Thinking", IIf(gThinking, "1", "0")
@@ -54,3 +71,4 @@ Public Function NormalizeApiBaseUrl(ByVal s As String) As String
     
     NormalizeApiBaseUrl = s
 End Function
+

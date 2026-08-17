@@ -13,6 +13,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
 Option Explicit
 
 Private mCancelled As Boolean
@@ -34,11 +35,11 @@ Private Sub btnOK_Click()
     gApiUrl = NormalizeApiBaseUrl(Trim$(txtApiUrl.Text))
     gApiKey = txtApiKey.Text
     gModelName = Trim$(txtModelName.Text)
-    gTemperature = CDbl(Replace(Trim$(txtTemperature.Text), ",", "."))
+    gTemperature = ParseDotDouble(Trim$(txtTemperature.Text))
     gTimeoutSec = CLng(Trim$(txtTimeoutSec.Text))
     gMaxTokens = CLng(Trim$(txtMaxTokens.Text))
-    gThinking = chkThinking.Value
-    gDebug = chkDebug.Value
+    gThinking = chkThinking.value
+    gDebug = chkDebug.value
     
     SavePatentToolsSettings
     
@@ -190,9 +191,9 @@ Private Sub UserForm_Initialize()
     txtApiUrl.Text = gApiUrl
     txtApiKey.Text = gApiKey
     txtModelName.Text = gModelName
-    txtTemperature.Text = Replace(CStr(gTemperature), ",", ".")
+    txtTemperature.Text = FormatDotDouble(gTemperature)
     txtTimeoutSec.Text = CStr(gTimeoutSec)
     txtMaxTokens.Text = CStr(gMaxTokens)
-    chkThinking.Value = gThinking
-    chkDebug.Value = gDebug
+    chkThinking.value = gThinking
+    chkDebug.value = gDebug
 End Sub

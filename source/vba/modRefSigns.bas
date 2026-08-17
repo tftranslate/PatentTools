@@ -1,6 +1,45 @@
 Attribute VB_Name = "modRefSigns"
 Option Explicit
 
+#If VBA7 Then
+    Private Declare PtrSafe Function GetStringTypeW Lib "kernel32" ( _
+        ByVal dwInfoType As Long, _
+        ByVal lpSrcStr As LongPtr, _
+        ByVal cchSrc As Long, _
+        ByRef lpCharType As Integer _
+    ) As Long
+#Else
+    Private Declare Function GetStringTypeW Lib "kernel32" ( _
+        ByVal dwInfoType As Long, _
+        ByVal lpSrcStr As Long, _
+        ByVal cchSrc As Long, _
+        ByRef lpCharType As Integer _
+    ) As Long
+#End If
+
+Private Const CT_CTYPE1 As Long = 1
+Private Const C1_DIGIT As Integer = &H4
+Private Const C1_ALPHA As Integer = &H100
+
+Private Function IsUnicodeLetterOrDigit(ByVal ch As String) As Boolean
+    Dim charType As Integer
+
+    If Len(ch) = 0 Then
+        IsUnicodeLetterOrDigit = False
+        Exit Function
+    End If
+
+    If GetStringTypeW(CT_CTYPE1, StrPtr(ch), 1, charType) = 0 Then
+        IsUnicodeLetterOrDigit = False
+        Exit Function
+    End If
+
+    IsUnicodeLetterOrDigit = _
+        ((charType And C1_ALPHA) <> 0) _
+        Or ((charType And C1_DIGIT) <> 0)
+End Function
+
+
 Public Sub Patent_Tools_Settings()
     frmPatentToolsSettings.Show
 End Sub
@@ -47,8 +86,18 @@ Public Sub Insert_Reference_Signs()
     End If
     
     If Not useSelection Then
+        If MsgBox( _
+            "Claims are not selected (highlighted)." & vbCrLf & vbCrLf & _
+            "Full document processing is costly." & vbCrLf & vbCrLf & _
+            "Proceed anyway?", _
+            vbExclamation + vbYesNo + vbDefaultButton2, _
+            "PatentTools" _
+        ) <> vbYes Then
+            Exit Sub
+        End If
         Set targetRange = ActiveDocument.Content
     End If
+    
     
     Set targetDoc = targetRange.Document
     Set targetWindow = targetDoc.ActiveWindow
@@ -156,10 +205,10 @@ Public Sub Insert_Reference_Signs()
     Dim s As String
 
     For k = 1 To rewrittenParas.Count
-    s = Trim$(CStr(rewrittenParas(k)))
-    If s <> "" Then
-        filteredParas.Add s
-    End If
+        s = NormalizeParagraphText(CStr(rewrittenParas(k)))
+        If IsSubstantiveParagraph(s) Then
+            filteredParas.Add s
+        End If
     Next k
 
     Set rewrittenParas = filteredParas
@@ -238,9 +287,7 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
     Dim oWordsPos As Collection
     Dim oWordsCmp As Collection
     Dim mWordsCmp As Collection
-    Dim mRefs As Collection
-    
-    Dim originalAnalysisText As String
+     
     Dim modelAnalysisText As String
     
     Dim iO As Long
@@ -260,52 +307,41 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
     Dim dbgModelToken As String
     Dim dbgCombined As String
     
-    originalAnalysisText = NormalizeAnalysisText(originalText)
     modelAnalysisText = NormalizeAnalysisText(modelText)
     
-    Set oWordsPos = ExtractWordsOnly(originalText)
-    Set oWordsCmp = ExtractWordsOnly(originalAnalysisText)
-    Set mWordsCmp = ExtractWordsOnly(modelAnalysisText)
-    Set mRefs = ExtractRefsFollowingWords(modelAnalysisText)
-    
-    
-Rem    If oWordsPos.Count <> oWordsCmp.Count Then
-        Rem MsgBox "DEBUG 1 - Original token count mismatch" & vbCrLf & _
-           rem "originalText: " & originalText & vbCrLf & vbCrLf & _
-           rem rem "originalAnalysisText: " & originalAnalysisText & vbCrLf & vbCrLf & _
-           rem "oWordsPos.Count = " & oWordsPos.Count & vbCrLf & _
-           rem "oWordsCmp.Count = " & oWordsCmp.Count, vbCritical
-        Rem InsertReferenceSignsOnly = False
-        Rem Exit Function
-    Rem End If
-
-    If mRefs.Count <> mWordsCmp.Count Then
-        If gDebug Then
-           MsgBox "DEBUG 2 - Model token/ref count mismatch" & vbCrLf & _
-               "modelText: " & modelText & vbCrLf & vbCrLf & _
-               "modelAnalysisText: " & modelAnalysisText & vbCrLf & vbCrLf & _
-                "mWordsCmp.Count = " & mWordsCmp.Count & vbCrLf & _
-                "mRefs.Count = " & mRefs.Count, vbCritical
-        End If
-        InsertReferenceSignsOnly = False
-        Exit Function
+    If gDebug Then
+        MsgBox modelAnalysisText, vbCritical
     End If
     
+    Set oWordsPos = ExtractWordsOnly(originalText)
+    Set oWordsCmp = oWordsPos
+    Set mWordsCmp = ExtractWordsOnly(modelAnalysisText)
+    
+    If mWordsCmp.Count = 0 Then
+      If gDebug Then
+        MsgBox "DEBUG 2 - No model words could be extracted." & vbCrLf & _
+               "modelText: " & modelText, vbCritical
+      End If
+
+      InsertReferenceSignsOnly = False
+      Exit Function
+    End If
+  
     
     iO = 1
     iM = 1
     delta = 0
     
     Do While iO <= oWordsCmp.Count And iM <= mWordsCmp.Count
-        canonO = CanonicalWordForCompare(CStr(oWordsCmp(iO)(0)))
+        canonO = CanonicalWordForCompare(CStr(oWordsPos(iO)(0)))
         canonM = CanonicalWordForCompare(CStr(mWordsCmp(iM)(0)))
         
-        dbgOriginalToken = CStr(oWordsCmp(iO)(0))
+        dbgOriginalToken = CStr(oWordsPos(iO)(0))
         dbgModelToken = CStr(mWordsCmp(iM)(0))
         
         
         If canonO = canonM Then
-            refText = CollectRefsForMatchedModelWords(mRefs, iM, iM)
+            refText = CStr(mWordsCmp(iM)(3))
             
             If Len(refText) > 0 Then
                 insertAt = CLng(oWordsPos(iO)(2)) + delta
@@ -329,7 +365,11 @@ Rem    If oWordsPos.Count <> oWordsCmp.Count Then
                 "Original token = [" & dbgOriginalToken & "]" & vbCrLf & _
                 "Original canonical = [" & canonO & "]" & vbCrLf & _
                 "Model token = [" & dbgModelToken & "]" & vbCrLf & _
-                "Model canonical = [" & canonM & "]", vbExclamation
+                "Model canonical = [" & canonM & "]" & vbCrLf & _
+                "Original code points = " & CharCodes(dbgOriginalToken) & vbCrLf & _
+                "Model code points = " & CharCodes(dbgModelToken) & vbCrLf & _
+                "Original analysis = " & CharCodes(CStr(oWordsCmp(iO)(0))) & vbCrLf & _
+                "Model analysis = " & CharCodes(CStr(mWordsCmp(iM)(0))) & vbCrLf, vbExclamation
             End If
             
             combinedM = canonM
@@ -338,11 +378,12 @@ Rem    If oWordsPos.Count <> oWordsCmp.Count Then
             dbgCombined = "[" & CStr(mWordsCmp(iM)(0)) & "]"
                 
             For j = iM + 1 To mWordsCmp.Count
+                If j > iM + 3 Then Exit For
                 combinedM = combinedM & CanonicalWordForCompare(CStr(mWordsCmp(j)(0)))
                 dbgCombined = dbgCombined & " + [" & CStr(mWordsCmp(j)(0)) & "]"
     
                 If combinedM = canonO Then
-                    refText = CollectRefsForMatchedModelWords(mRefs, startM, j)
+                    refText = CollectRefsForMatchedWords(mWordsCmp, startM, j)
                     
                     If Len(refText) > 0 Then
                         insertAt = CLng(oWordsPos(iO)(2)) + delta
@@ -395,12 +436,37 @@ Private Function TokenCollectionsMatchCount(ByVal a As Collection, ByVal b As Co
     TokenCollectionsMatchCount = (a.Count = b.Count)
 End Function
 
+
+Private Function GetRefsAfterWord(ByVal s As String, ByVal wordEnd As Long) As String
+    Dim p As Long
+    Dim oneRef As String
+    Dim refs As String
+
+    p = wordEnd + 1
+
+    Do
+        Do While p <= Len(s) _
+           And (Mid$(s, p, 1) = " " Or Mid$(s, p, 1) = vbTab)
+            p = p + 1
+        Loop
+
+        oneRef = ReadParenthesizedGroup(s, p)
+        If Len(oneRef) = 0 Then Exit Do
+
+        refs = refs & oneRef
+        p = p + Len(oneRef)
+    Loop
+
+    GetRefsAfterWord = refs
+End Function
+
+
 Private Function ExtractWordsOnly(ByVal s As String) As Collection
     Dim c As New Collection
     Dim i As Long
     Dim startPos As Long
     Dim token As String
-    Dim item(2) As Variant
+    Dim item(3) As Variant
     Dim ch As String
     Dim depth As Long
     
@@ -436,6 +502,7 @@ Private Function ExtractWordsOnly(ByVal s As String) As Collection
             item(0) = token
             item(1) = startPos
             item(2) = i - 1
+            item(3) = GetRefsAfterWord(s, item(2))
             c.Add item
             
         Else
@@ -444,38 +511,6 @@ Private Function ExtractWordsOnly(ByVal s As String) As Collection
     Loop
     
     Set ExtractWordsOnly = c
-End Function
-
-Private Function ExtractRefsFollowingWords(ByVal s As String) As Collection
-    Dim words As Collection
-    Dim c As New Collection
-    Dim i As Long
-    Dim p As Long
-    Dim refs As String
-    Dim oneRef As String
-    
-    Set words = ExtractWordsOnly(s)
-    
-    For i = 1 To words.Count
-        p = CLng(words(i)(2)) + 1
-        refs = ""
-        
-        Do
-            Do While p <= Len(s) And IsWhitespaceOnly(Mid$(s, p, 1))
-                p = p + 1
-            Loop
-            
-            oneRef = ReadParenthesizedGroup(s, p)
-            If Len(oneRef) = 0 Then Exit Do
-            
-            refs = refs & oneRef
-            p = p + Len(oneRef)
-        Loop
-        
-        c.Add refs
-    Next i
-    
-    Set ExtractRefsFollowingWords = c
 End Function
 
 Private Function ReadParenthesizedGroup(ByVal s As String, ByVal startPos As Long) As String
@@ -523,26 +558,50 @@ Private Function IsWhitespaceOnly(ByVal ch As String) As Boolean
     IsWhitespaceOnly = (ch = " " Or ch = vbTab)
 End Function
 
+Private Function IsWhitespaceChar(ByVal ch As String) As Boolean
+    IsWhitespaceChar = ( _
+        ch = " " _
+        Or ch = vbTab _
+        Or ch = vbCr _
+        Or ch = vbLf _
+    )
+End Function
+
+Private Function IsTokenPunctuation(ByVal ch As String) As Boolean
+    Select Case ch
+        Case "(", ")", "[", "]", "{", "}", _
+             ".", ",", ";", ":", "!", "?", _
+             """", "“", "”", "„", "«", "»", _
+             "+", "=", "*", "&", "|", "\", "<", ">", _
+             "@", "#", "$", "%", "^", "_", "~", "`"
+            IsTokenPunctuation = True
+        Case Else
+            IsTokenPunctuation = False
+    End Select
+End Function
+
 Private Function IsWordChar(ByVal ch As String) As Boolean
-    If ch Like "[A-Za-z0-9ÄÖÜäöüß]" Then
+    Dim normalized As String
+
+    normalized = NormalizeAnalysisText(ch)
+
+    ' Characters deliberately removed by normalization remain part
+    ' of the raw token, preserving correspondence with the normalized form.
+    If normalized = "" Then
         IsWordChar = True
-    ElseIf ch = "-" Or ch = "/" Or ch = "'" _
-        Or ch = ChrW(&H2010) _
-        Or ch = ChrW(&H2011) _
-        Or ch = ChrW(&H2012) _
-        Or ch = ChrW(&H2013) _
-        Or ch = ChrW(&H2014) _
-        Or ch = ChrW(&H2015) _
-        Or ch = ChrW(&H2212) _
-        Or ch = ChrW(&H2018) _
-        Or ch = ChrW(&H2019) _
-        Or ch = ChrW(&H201B) _
-        Or ch = ChrW(&H2032) _
-        Or ch = ChrW(&HB4) Then
-        IsWordChar = True
-    Else
-        IsWordChar = False
+        Exit Function
     End If
+
+    ' Deliberate word-internal connectors.
+    If normalized = "-" _
+       Or normalized = "/" _
+       Or normalized = "'" Then
+
+        IsWordChar = True
+        Exit Function
+    End If
+
+    IsWordChar = IsUnicodeLetterOrDigit(normalized)
 End Function
 
 Private Function BuildBatchJsonPrompt(ByVal refTable As String, ByVal paraTexts As Collection) As String
@@ -597,7 +656,7 @@ Private Function BuildChatCompletionJson_JSONMode(ByVal modelName As String, ByV
     
     json = "{"
     json = json & """model"":""" & JsonEscape(modelName) & ""","
-    json = json & """temperature"":" & Replace(CStr(temperature), ",", ".") & ","
+    json = json & """temperature"":" & FormatDotDouble(temperature) & ","
     json = json & """max_tokens"":" & CStr(maxTokens) & ","
     json = json & """response_format"":{""type"":""json_object""},"
     If (gThinking) Then
@@ -632,9 +691,10 @@ Private Function GetReferenceListFromForm() As String
     Dim f As frmRefList
     
     Set f = New frmRefList
-    f.txtRefList.Text = "housing" & vbTab & "10" & vbCrLf & _
-                        "piston" & vbTab & "12" & vbCrLf & _
-                        "seal" & vbTab & "14"
+    f.txtRefList.Text = "vehicle" & vbTab & "10" & vbCrLf & _
+                        "wheel" & vbTab & "2" & vbCrLf & _
+                        "engine" & vbTab & "3" & vbCrLf & _
+                        "surface" & vbTab & "100" & vbCrLf
     f.Show vbModal
     
     If f.Cancelled Then
@@ -1056,6 +1116,20 @@ Private Function IsAllDigitsText(ByVal s As String) As Boolean
 End Function
 
 
+' This is for debugging
+Private Function CharCodes(ByVal s As String) As String
+    Dim i As Long
+    Dim result As String
+
+    For i = 1 To Len(s)
+        If Len(result) > 0 Then result = result & " "
+        result = result & "U+" & Right$("0000" & Hex$(AscW(Mid$(s, i, 1))), 4)
+    Next i
+
+    CharCodes = result
+End Function
+
+
 Private Function NormalizeAnalysisText(ByVal s As String) As String
     ' Dash-like characters -> standard hyphen
     s = Replace(s, ChrW(&H2010), "-") ' hyphen
@@ -1071,6 +1145,7 @@ Private Function NormalizeAnalysisText(ByVal s As String) As String
         
     ' RS (0x1E) used by some chatbots as weird hyphen-like separator -> treat as hyphen
     s = Replace(s, ChrW(&H1E), "-")
+    s = Replace(s, ChrW(&HFE63), "-")  ' small hyphen-minus, also used by some LLMs as hypen separator
     
     ' Apostrophe-like characters -> straight apostrophe
     s = Replace(s, ChrW(&H2018), "'") ' left single quotation mark
@@ -1117,24 +1192,30 @@ Private Function CanonicalWordForCompare(ByVal s As String) As String
     CanonicalWordForCompare = LCase$(s)
 End Function
 
-Private Function CollectRefsForMatchedModelWords(ByVal mRefs As Collection, ByVal firstIndex As Long, ByVal lastIndex As Long) As String
+Private Function CollectRefsForMatchedWords( _
+    ByVal words As Collection, _
+    ByVal firstIndex As Long, _
+    ByVal lastIndex As Long) As String
+
     Dim i As Long
     Dim result As String
-    
-    result = ""
-    
+    Dim oneRef As String
+
     For i = firstIndex To lastIndex
-        If Len(CStr(mRefs(i))) > 0 Then
+        oneRef = CStr(words(i)(3))
+
+        If Len(oneRef) > 0 Then
             If result = "" Then
-                result = CStr(mRefs(i))
-            ElseIf InStr(1, result, CStr(mRefs(i)), vbBinaryCompare) = 0 Then
-                result = result & CStr(mRefs(i))
+                result = oneRef
+            ElseIf InStr(1, result, oneRef, vbBinaryCompare) = 0 Then
+                result = result & oneRef
             End If
         End If
     Next i
-    
-    CollectRefsForMatchedModelWords = result
+
+    CollectRefsForMatchedWords = result
 End Function
+
 Sub ShowSelectedCharCodes()
     Dim s As String
     Dim i As Long
@@ -1177,58 +1258,100 @@ Private Function GetFinishReason(ByVal jsonText As String) As String
     GetFinishReason = Mid$(jsonText, pQuote1 + 1, pQuote2 - pQuote1 - 1)
 End Function
 
-Private Function MatchModelParasSequentially(ByVal origParas As Collection, ByVal modelParas As Collection) As Collection
+Private Function MatchModelParasSequentially( _
+    ByVal origParas As Collection, _
+    ByVal modelParas As Collection) As Collection
+
+    Const THRESHOLD As Double = 0.7
+    Const LOOK_AHEAD As Long = 3
+
     Dim result As New Collection
     Dim iO As Long
     Dim iM As Long
-    Dim scoreNow As Double
-    Dim scoreNext As Double
-    Dim threshold As Double
-    
-    threshold = 0.6
-    
+    Dim probeM As Long
+    Dim probeO As Long
+    Dim bestM As Long
+    Dim bestO As Long
+    Dim bestScore As Double
+    Dim score As Double
+
     iO = 1
     iM = 1
-    
+
     Do While iO <= origParas.Count
+
         If iM > modelParas.Count Then
             result.Add ""
             iO = iO + 1
-        
-        ElseIf modelParas.Count = origParas.Count Then
-            result.Add CStr(modelParas(iO))
-            iO = iO + 1
-            iM = iM + 1
-        
-        Else
-            scoreNow = ParagraphSimilarityScore(CStr(origParas(iO)), CStr(modelParas(iM)))
-            
-            If iM < modelParas.Count Then
-                scoreNext = ParagraphSimilarityScore(CStr(origParas(iO)), CStr(modelParas(iM + 1)))
-            Else
-                scoreNext = -1#
-            End If
-            
-            If scoreNow >= threshold Then
-                result.Add CStr(modelParas(iM))
-                iO = iO + 1
-                iM = iM + 1
-            
-            ElseIf scoreNext > scoreNow And scoreNext >= threshold Then
-                ' Skip one extra model paragraph
-                iM = iM + 1
-                result.Add CStr(modelParas(iM))
-                iO = iO + 1
-                iM = iM + 1
-            
-            Else
-                result.Add CStr(modelParas(iM))
-                iO = iO + 1
-                iM = iM + 1
-            End If
+            GoTo NextOriginal
         End If
+
+        ' First preference: find current original paragraph within
+        ' the next LOOK_AHEAD model paragraphs.
+        bestM = 0
+        bestScore = -1#
+
+        For probeM = iM To modelParas.Count
+            If probeM > iM + LOOK_AHEAD Then Exit For
+
+            score = ParagraphSimilarityScore( _
+                CStr(origParas(iO)), _
+                CStr(modelParas(probeM)) _
+            )
+
+            If score > bestScore Then
+                bestScore = score
+                bestM = probeM
+            End If
+        Next probeM
+
+        If bestScore >= THRESHOLD Then
+            result.Add CStr(modelParas(bestM))
+            iO = iO + 1
+            iM = bestM + 1
+            GoTo NextOriginal
+        End If
+
+        ' No model match for current original paragraph. Check whether
+        ' the next original paragraph matches current model paragraph.
+        ' If so, the model likely omitted the current original paragraph.
+        bestO = 0
+        bestScore = -1#
+
+        For probeO = iO + 1 To origParas.Count
+            If probeO > iO + LOOK_AHEAD Then Exit For
+
+            score = ParagraphSimilarityScore( _
+                CStr(origParas(probeO)), _
+                CStr(modelParas(iM)) _
+            )
+
+            If score > bestScore Then
+                bestScore = score
+                bestO = probeO
+            End If
+        Next probeO
+
+        If bestScore >= THRESHOLD Then
+            ' Model omitted original paragraphs iO through bestO - 1.
+            ' Return unmatched entries for those original paragraphs;
+            ' do not consume the current model paragraph.
+            Do While iO < bestO
+                result.Add ""
+                iO = iO + 1
+            Loop
+
+            GoTo NextOriginal
+        End If
+
+        ' Neither sequence contains a credible near-term match.
+        ' Do not force an unsafe association.
+        result.Add ""
+        iO = iO + 1
+
+NextOriginal:
     Loop
-    
+
     Set MatchModelParasSequentially = result
 End Function
 

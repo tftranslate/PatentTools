@@ -13,14 +13,14 @@ set "EXITCODE=%ERRORLEVEL%"
 
 echo.
 if not "%EXITCODE%"=="0" (
-    echo BUILD FAILED - exit code: %EXITCODE%
+    echo BUILD FEHLGESCHLAGEN - Exit-Code: %EXITCODE%
     echo.
     pause
     exit /b %EXITCODE%
 )
 
-echo BUILD SUCCESSFUL.
-echo Result:
+echo BUILD ERFOLGREICH.
+echo Ergebnis:
 echo %ROOT%build\PatentTools.dotm
 echo.
 pause
