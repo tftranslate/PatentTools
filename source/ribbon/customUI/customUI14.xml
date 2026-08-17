@@ -1,0 +1,27 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="PatentToolsRibbon_OnLoad"> <ribbon>
+    <tabs>
+      <tab id="tabPatentTools" label="Patent Tools" insertAfterMso="TabHome">
+        <group id="grpReferenceSigns" label="Reference Signs">
+          <button
+            id="btnInsertReferenceSigns"
+            label="Insert reference signs"
+            size="large"
+            image="refsignicon"
+            screentip="Insert reference signs"
+            supertip="Insert reference signs into the current selection or document."
+            onAction="PatentTools_InsertReferenceSigns" />
+        </group>
+        <group id="grpConfiguration" label="Configuration">
+          <button
+            id="btnPatentToolsSettings"
+            label="Settings"
+            size="large"
+            imageMso="ControlProperties"
+            screentip="Settings"
+            supertip="Open Patent Tools settings."
+            onAction="PatentTools_OpenSettings" />
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

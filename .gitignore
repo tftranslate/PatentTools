@@ -3,3 +3,7 @@
 *.bak
 Thumbs.db
 Desktop.ini
+/build/
+/original/
+~$*.doc*
+~$*.dot*
