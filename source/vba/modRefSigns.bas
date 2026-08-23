@@ -71,7 +71,7 @@ Public Sub Insert_Reference_Signs()
     Rem Populate the g... global variables
     LoadPatentToolsSettings
    
-    refTable = GetReferenceListFromForm()
+    refTable = GetPersistedReferenceList()
     If Trim$(refTable) = "" Then
         MsgBox "Reference-sign table is required.", vbExclamation
         Exit Sub
@@ -281,6 +281,26 @@ FailHandler:
     MsgBox "Request failed:" & vbCrLf & _
            "No.: " & Err.Number & vbCrLf & _
            "Text: " & Err.Description & vbCrLf, vbCritical
+End Sub
+Private Function GetPersistedReferenceList() As String
+    ' Read the persisted reference list from document custom properties.
+    Dim refList As String
+    On Error Resume Next
+    refList = ActiveDocument.CustomDocumentProperties("PatentToolsRefList").Value
+    On Error GoTo 0
+    GetPersistedReferenceList = refList
+End Function
+
+Public Sub PatentTools_EditReferenceSigns(control As IRibbonControl)
+    ' Callback for the "Edit reference signs" ribbon button.
+    ' Opens the reference sign list dialog directly (without auto-prompting).
+    Dim f As frmRefList
+
+    Set f = New frmRefList
+    f.Show vbModal
+
+    Unload f
+    Set f = Nothing
 End Sub
 
 Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal originalText As String, ByVal modelText As String) As Boolean
@@ -1436,4 +1456,151 @@ Private Function ExtractCanonicalWordsForParagraph(ByVal s As String) As Collect
     Next i
     
     Set ExtractCanonicalWordsForParagraph = result
+End Function
+
+
+Public Function FetchModelList(ByVal rawApiUrl As String, ByRef modelNames As Collection, ByRef errorText As String) As Boolean
+    Dim base As String
+    Dim url As String
+    Dim http As Object
+    Dim body As String
+    Dim lowerBody As String
+    Dim recvMs As Long
+    Dim pData As Long
+    Dim arrStart As Long
+    Dim arrEnd As Long
+    Dim scanSrc As String
+    Dim i As Long
+    Dim pId As Long
+    Dim nextPos As Long
+    Dim ch As String
+    Dim colonFound As Boolean
+    Dim openQuote As Long
+    Dim qValEnd As Long
+    Dim valStr As String
+    Dim k As Long
+    Dim isDup As Boolean
+    
+    ' GET {base}/v1/models and collect the "id" value of every entry in the model list.
+    ' Reuses FindMatchingBracket / FindJsonStringEnd / JsonUnescape from this module; the scan
+    ' below is deliberately heuristic, same pragmatic style as the other JSON handling here.
+    
+    Set modelNames = New Collection
+    errorText = ""
+    
+    base = NormalizeApiBaseUrl(Trim$(rawApiUrl))
+    If LCase$(Left$(base, 5)) <> "http:" And LCase$(Left$(base, 6)) <> "https:" Then
+        errorText = "Enter a valid http(s) base URL first."
+        Exit Function
+    End If
+    
+    url = base & "/v1/models"
+    
+    Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
+    recvMs = gTimeoutSec * 1000
+    If recvMs > 30000 Then recvMs = 30000   ' a model list should arrive quickly; keep the dialog responsive
+    
+    http.SetTimeouts 5000, 8000, 5000, recvMs
+    
+    On Error Resume Next
+    http.Open "GET", url, False
+    If Err.Number <> 0 Then
+        errorText = "Could not reach the server at this URL."
+        Exit Function
+    End If
+    If Len(Trim$(gApiKey)) > 0 Then
+        http.SetRequestHeader "Authorization", "Bearer " & Trim$(gApiKey)
+    End If
+    http.Send
+    If Err.Number <> 0 Then
+        errorText = "The request for the model list failed."
+        Exit Function
+    End If
+    On Error GoTo 0
+    
+    If CInt(http.Status) <> 200 Then
+        If http.Status = 401 Or http.Status = 403 Then
+            errorText = "Access denied (HTTP " & CStr(http.Status) & "). Check URL and API key."
+        ElseIf http.Status = 404 Then
+            errorText = "This server has no /v1/models endpoint (HTTP 404)."
+        Else
+            errorText = "Server error (HTTP " & CStr(http.Status) & ")."
+        End If
+        Exit Function
+    End If
+    
+    body = http.responseText
+    lowerBody = LCase$(body)
+    
+    ' Primary shape: {"data": [ ... ]}; some servers answer with a bare top-level array.
+    pData = InStr(1, lowerBody, """data""")
+    arrStart = 0
+    If pData > 0 Then
+        arrStart = InStr(pData + 5, body, "[")
+    Else
+        If Left$(Trim$(body), 1) = "[" Then
+            arrStart = InStr(1, body, "[")
+        End If
+    End If
+    If arrStart = 0 Then
+        errorText = "The server response contains no model list."
+        Exit Function
+    End If
+    
+    arrEnd = FindMatchingBracket(body, arrStart)
+    If arrEnd < arrStart + 1 Then
+        errorText = "Malformed model list in the server response."
+        Exit Function
+    End If
+    
+    scanSrc = Mid$(body, arrStart + 1, arrEnd - arrStart - 1)
+    
+    ' Structural JSON keys are the only unescaped occurrences of literal quoted text like "id"
+    ' (quotes inside string values arrive escaped), so scanning for key-then-value pairs here is safe.
+    i = 1
+    Do While i <= Len(scanSrc)
+        pId = InStr(i, scanSrc, """id""", vbBinaryCompare)
+        If pId = 0 Then Exit Do
+        
+        colonFound = False
+        openQuote = 0
+        nextPos = pId + 4   ' first character after the closing quote of the "id" key
+        Do While nextPos <= Len(scanSrc) And (Mid$(scanSrc, nextPos, 1) = " ")
+            nextPos = nextPos + 1
+        Loop
+        If nextPos > Len(scanSrc) Then Exit Do   ' malformed: no colon after the key; nothing more to scan
+        
+        ch = Mid$(scanSrc, nextPos, 1)
+        If ch <> ":" Then
+            i = nextPos    ' not a key we understand (e.g. "identity"); skip this occurrence
+        Else
+            Do While nextPos < Len(scanSrc) And (Mid$(scanSrc, nextPos + 1, 1) = " ")
+                nextPos = nextPos + 1
+            Loop
+            openQuote = nextPos + 1
+            If InStr(1, Mid$(scanSrc, openQuote), Chr$(34)) = 0 Or Left$(Mid$(scanSrc, openQuote), 1) <> Chr$(34) Then
+                i = pId + 4     ' value is not a JSON string (unexpected); skip this occurrence
+            Else
+                qValEnd = FindJsonStringEnd(scanSrc, openQuote + 1)
+                If qValEnd < openQuote + 1 Then Exit Do   ' unterminated string: stop, let zero-found handle it
+                valStr = JsonUnescape(Mid$(scanSrc, openQuote + 1, qValEnd - openQuote - 1))
+                If Len(Trim$(valStr)) > 0 Then
+                    isDup = False
+                    For k = 1 To modelNames.Count
+                        If LCase$(modelNames(k)) = LCase$(valStr) Then isDup = True
+                    Next k
+                    If Not isDup Then modelNames.Add valStr
+                End If
+                i = qValEnd + 1
+            End If
+        End If
+    Loop
+    
+    If modelNames.Count = 0 Then
+        errorText = "The server reported no models."
+        Exit Function
+    End If
+    FetchModelList = True
+    
+    ' success: caller selects the first item and displays the green status line.
 End Function

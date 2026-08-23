@@ -10,6 +10,14 @@
             screentip="Insert reference signs"
             supertip="Insert reference signs into the current selection or document."
             onAction="PatentTools_InsertReferenceSigns" />
+	  <button
+            id="btnEditReferenceSigns"
+            label="Edit reference signs"
+            size="large"
+            imageMso="TableInsert"
+            screentip="Edit reference signs"
+            supertip="Populate and edit the list of reference signs"
+            onAction="PatentTools_EditReferenceSigns" />
         </group>
 	<group id="grpConfiguration" label="Configuration">
 	  <button

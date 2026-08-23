@@ -1,10 +1,10 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmPatentToolsSettings 
    Caption         =   "PatentTools Settings"
-   ClientHeight    =   5120
+   ClientHeight    =   5620
    ClientLeft      =   110
    ClientTop       =   460
-   ClientWidth     =   9430.001
+   ClientWidth     =   9310.001
    OleObjectBlob   =   "frmPatentToolsSettings.frx":0000
    StartUpPosition =   1  'Fenstermitte
 End
@@ -14,9 +14,12 @@ Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
 
+
+
 Option Explicit
 
 Private mCancelled As Boolean
+Private mModelsFetched As Boolean
 
 Public Property Get Cancelled() As Boolean
     Cancelled = mCancelled
@@ -28,13 +31,18 @@ Private Sub btnCancel_Click()
     Me.Hide
 End Sub
 
+Private Sub UserForm_Activate()
+    ' Reset status label whenever the form is shown, so stale connection messages don't persist.
+    lblStatus.Caption = ""
+    lblStatus.ForeColor = RGB(255, 165, 0)   ' default yellow for "ready"
+End Sub
 
 Private Sub btnOK_Click()
     If Not ValidateInputs() Then Exit Sub
     
     gApiUrl = NormalizeApiBaseUrl(Trim$(txtApiUrl.Text))
     gApiKey = txtApiKey.Text
-    gModelName = Trim$(txtModelName.Text)
+    gModelName = Trim$(cbbModel.Text)
     gTemperature = ParseDotDouble(Trim$(txtTemperature.Text))
     gTimeoutSec = CLng(Trim$(txtTimeoutSec.Text))
     gMaxTokens = CLng(Trim$(txtMaxTokens.Text))
@@ -47,10 +55,47 @@ Private Sub btnOK_Click()
     Me.Hide
 End Sub
 
+Private Sub txtApiUrl_Change()
+    ' Whenever the URL changes, invalidate any previous successful fetch state.
+    mModelsFetched = False
+    btnOK.Enabled = False
 
+    Dim urlText As String
+    urlText = Trim$(txtApiUrl.Text)
 
+    If Len(urlText) = 0 Then
+        lblStatus.ForeColor = RGB(192, 0, 0)
+        lblStatus.Caption = "URL must not be empty."
+    Else
+        lblStatus.ForeColor = RGB(255, 165, 0)
+        lblStatus.Caption = "Please fetch model list to verify connection."
+    End If
 
-Private Sub CheckBox1_Click()
+    ' Clear the model dropdown so stale entries are not presented.
+    Do While cbbModel.ListCount > 0
+        cbbModel.RemoveItem (0)
+    Loop
+End Sub
+
+Private Sub txtApiKey_Change()
+    ' Whenever the API key changes, invalidate any previous successful fetch state.
+    mModelsFetched = False
+    btnOK.Enabled = False
+
+    lblStatus.ForeColor = RGB(255, 165, 0)   ' yellow/orange
+    lblStatus.Caption = "Please fetch model list to verify connection."
+
+    ' Clear the model dropdown so stale entries from the previous key are not presented.
+    Do While cbbModel.ListCount > 0
+        cbbModel.RemoveItem (0)
+    Loop
+End Sub
+
+Private Sub cbbModel_Change()
+
+End Sub
+
+Private Sub lblStatus_Click()
 
 End Sub
 
@@ -95,10 +140,10 @@ Private Function ValidateInputs() As Boolean
         Exit Function
     End If
     
-    s = Trim$(txtModelName.Text)
+    s = Trim$(cbbModel.Text)
     If s = "" Then
         MsgBox "Model name is required.", vbExclamation, "Patent Tools"
-        txtModelName.SetFocus
+        cbbModel.SetFocus
         Exit Function
     End If
     
@@ -190,10 +235,58 @@ Private Sub UserForm_Initialize()
     
     txtApiUrl.Text = gApiUrl
     txtApiKey.Text = gApiKey
-    txtModelName.Text = gModelName
+    
+    ' Start with persisted model selected so OK is usable without network access.
+    Do While cbbModel.ListCount > 0
+        cbbModel.RemoveItem (0)
+    Loop
+    If Trim$(gModelName) <> "" Then
+        cbbModel.AddItem (gModelName)
+        cbbModel.ListIndex = 0
+    End If
+    
     txtTemperature.Text = FormatDotDouble(gTemperature)
     txtTimeoutSec.Text = CStr(gTimeoutSec)
     txtMaxTokens.Text = CStr(gMaxTokens)
     chkThinking.value = gThinking
     chkDebug.value = gDebug
+    
+    ' Initial state: OK enabled, status label empty.
+    lblStatus.Caption = ""
+    mModelsFetched = True  ' persisted model counts as confirmed
+    btnOK.Enabled = True
+End Sub
+
+Private Sub FetchModelsFromAPI()
+    Dim modelNames As Collection
+    Dim errText As String
+    Dim i As Long
+    
+    If FetchModelList(Trim$(txtApiUrl.Text), modelNames, errText) Then
+        ' Success: replace dropdown with server list and select first item.
+        Do While cbbModel.ListCount > 0
+            cbbModel.RemoveItem (0)
+        Loop
+        For i = 1 To modelNames.Count
+            cbbModel.AddItem (modelNames(i))
+        Next i
+        cbbModel.ListIndex = 0
+        
+        lblStatus.ForeColor = RGB(0, 128, 0)
+        lblStatus.Caption = "Connection successful."
+        mModelsFetched = True
+        btnOK.Enabled = True
+    Else
+        ' Failure: keep persisted values but warn the user.
+        lblStatus.ForeColor = RGB(192, 0, 0)
+        lblStatus.Caption = "Connection failed: " & errText
+        
+        ' OK stays enabled so the user can confirm the persisted config anyway.
+        mModelsFetched = True
+        btnOK.Enabled = True
+    End If
+End Sub
+
+Private Sub btnRefreshModels_Click()
+    FetchModelsFromAPI
 End Sub
