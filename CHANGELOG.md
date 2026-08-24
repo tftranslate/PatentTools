@@ -4,6 +4,25 @@ All notable changes to PatentTools for Microsoft Word are documented in this fil
 
 The project uses semantic-style versioning while it remains in pre-1.0 development.
 
+## [0.2.0-beta - work in progress - not yet released]
+### Added
+- Verification of API connection
+- Auto-detection of available models
+- Table of reference signs is now persistent on a document level.
+- Call model in streaming mode for better progress feedback.
+- System prompt for reference sign insertion is now mostly user-editable.
+
+### Changed
+- Separated editing the reference sign table and inserting reference into two separate ribbon icons.
+- Reworked the settings dialog in preparation for further functionality.
+
+## Fixed
+
+- Unicode processing should now work on Mac
+
+### To be done
+- Implement auto-population of list of reference signs from description
+
 ## [0.1.1] - 2026-08-17
 
 ### Added
