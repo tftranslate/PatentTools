@@ -1,48 +1,13 @@
 Attribute VB_Name = "modRefSigns"
 Option Explicit
 
-#If VBA7 Then
-    Private Declare PtrSafe Function GetStringTypeW Lib "kernel32" ( _
-        ByVal dwInfoType As Long, _
-        ByVal lpSrcStr As LongPtr, _
-        ByVal cchSrc As Long, _
-        ByRef lpCharType As Integer _
-    ) As Long
-#Else
-    Private Declare Function GetStringTypeW Lib "kernel32" ( _
-        ByVal dwInfoType As Long, _
-        ByVal lpSrcStr As Long, _
-        ByVal cchSrc As Long, _
-        ByRef lpCharType As Integer _
-    ) As Long
-#End If
+' Delimiters used in the hardcoded user message.
+Private Const DELIM_REFS_BEGIN  As String = "===== BEGIN REFERENCE SIGN LIST ====="
+Private Const DELIM_REFS_END    As String = "===== END REFERENCE SIGN LIST ====="
+Private Const DELIM_PARA_BEGIN  As String = "===== BEGIN PARAGRAPHS "
+Private Const DELIM_PARA_END    As String = "===== END PARAGRAPHS "
+Private Const DELIM_SUFFIX      As String = " ====="
 
-Private Const CT_CTYPE1 As Long = 1
-Private Const C1_DIGIT As Integer = &H4
-Private Const C1_ALPHA As Integer = &H100
-
-Private Function IsUnicodeLetterOrDigit(ByVal ch As String) As Boolean
-    Dim charType As Integer
-
-    If Len(ch) = 0 Then
-        IsUnicodeLetterOrDigit = False
-        Exit Function
-    End If
-
-    If GetStringTypeW(CT_CTYPE1, StrPtr(ch), 1, charType) = 0 Then
-        IsUnicodeLetterOrDigit = False
-        Exit Function
-    End If
-
-    IsUnicodeLetterOrDigit = _
-        ((charType And C1_ALPHA) <> 0) _
-        Or ((charType And C1_DIGIT) <> 0)
-End Function
-
-
-Public Sub Patent_Tools_Settings()
-    frmPatentToolsSettings.Show
-End Sub
 
 Public Sub Insert_Reference_Signs()
     Dim refTable As String
@@ -51,25 +16,32 @@ Public Sub Insert_Reference_Signs()
     Dim paraTexts As Collection
     Dim p As Paragraph
     Dim paraText As String
-    Dim promptText As String
+    Dim systemPrompt As String
+    Dim userMessage As String
     Dim endpoint As String
     Dim requestJson As String
-    Dim responseJson As String
+    Dim baseUrl As String
+    Dim usedNativeRoute As Boolean
+    Dim renderedPrompt As String
     Dim assistantText As String
+    Dim finishReason As String
+    Dim streamError As String
     Dim rewrittenParas As Collection
-    Dim http As Object
     Dim i As Long
     Dim useSelection As Boolean
     Dim workRng As Range
     
     Dim targetDoc As Document
-    Dim targetWindow As Window
     Dim oldTrackRevisions As Boolean
+    Dim trackRevisionsSaved As Boolean
     Dim failedParagraphs As String
     Dim okInsert As Boolean
     
     Rem Populate the g... global variables
     LoadPatentToolsSettings
+
+    ' Progress reporting is pointless if the status bar is hidden.
+    Application.DisplayStatusBar = True
    
     refTable = GetPersistedReferenceList()
     If Trim$(refTable) = "" Then
@@ -100,7 +72,6 @@ Public Sub Insert_Reference_Signs()
     
     
     Set targetDoc = targetRange.Document
-    Set targetWindow = targetDoc.ActiveWindow
     
     Set paraRanges = New Collection
     Set paraTexts = New Collection
@@ -118,68 +89,85 @@ Public Sub Insert_Reference_Signs()
         Exit Sub
     End If
     
-    promptText = BuildBatchJsonPrompt(refTable, paraTexts)
-    endpoint = gApiUrl & "/v1/chat/completions"
-    requestJson = BuildChatCompletionJson_JSONMode(gModelName, promptText, gTemperature, gMaxTokens)
+    systemPrompt = BuildRefSignSystemPrompt(paraTexts.Count)
+    userMessage = BuildBatchUserMessage(refTable, paraTexts)
+    baseUrl = NormalizeApiBaseUrl(gApiUrl)
+
+    ' Route selection. Both backends are supported:
+    '
+    '   llama.cpp  -> /apply-template + /completion, the only documented way to
+    '                 receive real "prompt_progress" during prefill.
+    '   Ollama     -> /v1/chat/completions, which reports no progress; the
+    '                 status bar then shows a calibrated estimate.
+    '
+    ' The native route is skipped when thinking is enabled: it constrains output
+    ' with json_schema from the very first token, which leaves no room for a
+    ' reasoning block, and /apply-template takes no chat_template_kwargs.
+    usedNativeRoute = False
+
+    If Not gThinking Then
+        If PT_HasNativeProgressApi(baseUrl) Then
+            If PT_ApplyTemplate(baseUrl, _
+                    BuildMessagesArrayJson(systemPrompt, userMessage), _
+                    gApiKey, gTimeoutSec, renderedPrompt, streamError) Then
+                endpoint = baseUrl & "/completion"
+                requestJson = BuildCompletionJson_JSONMode( _
+                    renderedPrompt, gTemperature, gMaxTokens)
+                usedNativeRoute = True
+            End If
+        End If
+    End If
+
+    If Not usedNativeRoute Then
+        ' Fallback, and the normal path for Ollama. Any error from the probe or
+        ' the template call is deliberately discarded: it is not a failure.
+        streamError = ""
+        endpoint = baseUrl & "/v1/chat/completions"
+        requestJson = BuildChatCompletionJson_JSONMode( _
+            gModelName, systemPrompt, userMessage, gTemperature, gMaxTokens)
+    End If
+    
+    If gDebug Then
+        If Not ShowLargeTextDialog( _
+            "Prompt preview - system message and user message", _
+            "----- ENDPOINT -----" & vbCrLf & endpoint & vbCrLf & _
+            "(" & IIf(usedNativeRoute, _
+                      "llama.cpp native route, real prompt progress", _
+                      "OpenAI-compatible route, estimated prompt progress") & _
+            ")" & vbCrLf & vbCrLf & _
+            "----- SYSTEM MESSAGE -----" & vbCrLf & _
+            ToDisplayText(systemPrompt) & vbCrLf & vbCrLf & _
+            "----- USER MESSAGE -----" & vbCrLf & _
+            ToDisplayText(userMessage), True) Then
+            Exit Sub
+        End If
+    End If
     
     On Error GoTo FailHandler
-    Application.ScreenUpdating = False
-    StatusBar = "Calling model with a " & gTimeoutSec & "s timeout ..."
     
-    Dim waitStart As Single
-    Dim waitedSec As Long
-    Dim ok As Boolean
-    Dim spinner As String
-
-    Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
-    http.SetTimeouts 30000, 30000, 30000, gTimeoutSec * 1000
-    http.Open "POST", endpoint, True
-    http.SetRequestHeader "Content-Type", "application/json"
-    If Len(Trim$(gApiKey)) > 0 Then
-        http.SetRequestHeader "Authorization", "Bearer " & Trim$(gApiKey)
+    ' Streaming call. ScreenUpdating stays on: the status bar must repaint while
+    ' the response arrives, and no document changes happen during the request.
+    If usedNativeRoute Then
+        Application.StatusBar = "Calling model with prompt-progress reporting ..."
+    Else
+        Application.StatusBar = "Calling model (timeout " & CStr(gTimeoutSec) & _
+                                " s per idle period) ..."
     End If
     
-    http.Send requestJson
-
-    waitStart = Timer
-
-    Do
-        DoEvents
-    
-        On Error Resume Next
-        ok = http.WaitForResponse(1)
-        If Err.Number <> 0 Then
-            MsgBox "WaitForResponse failed:" & vbCrLf & _
-                   "No.: " & Err.Number & vbCrLf & _
-                   "Text: " & Err.Description, vbCritical
-            On Error GoTo FailHandler
-            GoTo CleanExit
-        End If
-        On Error GoTo FailHandler
-    
-        waitedSec = CLng(Timer - waitStart)
-        spinner = Choose((waitedSec Mod 4) + 1, "|", "/", "-", "\")
-        Application.StatusBar = "Calling model " & spinner & "  elapsed: " & waitedSec & " s"
-    
-        If ok Then Exit Do
-    Loop
-
-    If http.Status <> 200 Then
-        MsgBox "HTTP error " & http.Status & vbCrLf & http.responseText, vbCritical
+    If Not StreamChatCompletion( _
+            endpoint, requestJson, _
+            assistantText, finishReason, streamError, _
+            gTimeoutSec, gApiKey) Then
+        MsgBox "The model call failed:" & vbCrLf & vbCrLf & streamError, vbCritical, "PatentTools"
         GoTo CleanExit
     End If
-
-    responseJson = http.responseText
     
-    Dim finishReason As String
-
-    finishReason = LCase$(Trim$(GetFinishReason(responseJson)))
+    finishReason = LCase$(Trim$(finishReason))
     If finishReason = "length" Then
         MsgBox "Model output was truncated (finish_reason = length). Increase max_tokens and try again.", vbCritical
         GoTo CleanExit
     End If
     
-    assistantText = ExtractAssistantContent(responseJson)
     assistantText = CleanupModelOutput(assistantText)
     
     If Trim$(assistantText) = "" Then
@@ -223,7 +211,11 @@ Public Sub Insert_Reference_Signs()
     End If
     
     oldTrackRevisions = targetDoc.TrackRevisions
+    trackRevisionsSaved = True
     targetDoc.TrackRevisions = True
+    
+    ' Screen updates are only suppressed while the document is being modified.
+    Application.ScreenUpdating = False
     
     failedParagraphs = ""
     
@@ -231,7 +223,7 @@ Public Sub Insert_Reference_Signs()
     Set matchedPara = MatchModelParasSequentially(paraTexts, rewrittenParas)
 
     For i = 1 To paraRanges.Count
-        StatusBar = "Inserting reference signs in paragraph " & i & " of " & paraRanges.Count & "..."
+        Application.StatusBar = "Inserting reference signs in paragraph " & i & " of " & paraRanges.Count & "..."
     
         If CStr(matchedPara(i)) = "" Then
             If failedParagraphs <> "" Then failedParagraphs = failedParagraphs & ", "
@@ -261,6 +253,7 @@ Public Sub Insert_Reference_Signs()
  
     
     targetDoc.TrackRevisions = oldTrackRevisions
+    trackRevisionsSaved = False
     
     If failedParagraphs <> "" Then
         MsgBox "Done, but these paragraphs were skipped because the word sequence could not be aligned safely:" & vbCrLf & _
@@ -273,14 +266,23 @@ CleanExit:
     Exit Sub
 
 FailHandler:
+    Dim errNumber As Long
+    Dim errText As String
+
+    errNumber = Err.Number
+    errText = Err.Description
+
     On Error Resume Next
-    If Not http Is Nothing Then http.Abort
-    If Not targetDoc Is Nothing Then targetDoc.TrackRevisions = oldTrackRevisions
+    If trackRevisionsSaved Then
+        If Not targetDoc Is Nothing Then targetDoc.TrackRevisions = oldTrackRevisions
+    End If
     Application.StatusBar = ""
     Application.ScreenUpdating = True
+    On Error GoTo 0
+
     MsgBox "Request failed:" & vbCrLf & _
-           "No.: " & Err.Number & vbCrLf & _
-           "Text: " & Err.Description & vbCrLf, vbCritical
+           "No.: " & CStr(errNumber) & vbCrLf & _
+           "Text: " & errText & vbCrLf, vbCritical
 End Sub
 Private Function GetPersistedReferenceList() As String
     ' Read the persisted reference list from document custom properties.
@@ -456,7 +458,6 @@ Private Function TokenCollectionsMatchCount(ByVal a As Collection, ByVal b As Co
     TokenCollectionsMatchCount = (a.Count = b.Count)
 End Function
 
-
 Private Function GetRefsAfterWord(ByVal s As String, ByVal wordEnd As Long) As String
     Dim p As Long
     Dim oneRef As String
@@ -479,7 +480,6 @@ Private Function GetRefsAfterWord(ByVal s As String, ByVal wordEnd As Long) As S
 
     GetRefsAfterWord = refs
 End Function
-
 
 Private Function ExtractWordsOnly(ByVal s As String) As Collection
     Dim c As New Collection
@@ -574,124 +574,163 @@ Private Function AlreadyHasEquivalentRefsAfter(ByVal s As String, ByVal insertPo
     AlreadyHasEquivalentRefsAfter = (Len(actual) > 0 And actual = refText)
 End Function
 
-Private Function IsWhitespaceOnly(ByVal ch As String) As Boolean
-    IsWhitespaceOnly = (ch = " " Or ch = vbTab)
-End Function
 
-Private Function IsWhitespaceChar(ByVal ch As String) As Boolean
-    IsWhitespaceChar = ( _
-        ch = " " _
-        Or ch = vbTab _
-        Or ch = vbCr _
-        Or ch = vbLf _
-    )
-End Function
+'-----------------------------------------------------------------------
+' Prompt assembly
+'
+' System message: user-editable, held in gPromptInsert (settings dialog ->
+'                 txtPromptInsert, factory text in modPatentToolsconfig).
+' User message:   hardcoded here, carries only the data (reference sign list
+'                 and the paragraphs), wrapped in explicit delimiters.
+'-----------------------------------------------------------------------
 
-Private Function IsTokenPunctuation(ByVal ch As String) As Boolean
-    Select Case ch
-        Case "(", ")", "[", "]", "{", "}", _
-             ".", ",", ";", ":", "!", "?", _
-             """", "“", "”", "„", "«", "»", _
-             "+", "=", "*", "&", "|", "\", "<", ">", _
-             "@", "#", "$", "%", "^", "_", "~", "`"
-            IsTokenPunctuation = True
-        Case Else
-            IsTokenPunctuation = False
-    End Select
-End Function
+' Returns the system message: the user-editable prompt with the paragraph-count
+' placeholder resolved. If the user removed the placeholder, the count is appended
+' so the model still receives the required array length.
+Private Function BuildRefSignSystemPrompt(ByVal paraCount As Long) As String
+    Dim s As String
 
-Private Function IsWordChar(ByVal ch As String) As Boolean
-    Dim normalized As String
+    s = gPromptInsert
+    If Trim$(s) = "" Then s = DEF_PromptInsert()
 
-    normalized = NormalizeAnalysisText(ch)
+    s = Replace(s, vbCrLf, vbLf)
+    s = Replace(s, vbCr, vbLf)
 
-    ' Characters deliberately removed by normalization remain part
-    ' of the raw token, preserving correspondence with the normalized form.
-    If normalized = "" Then
-        IsWordChar = True
-        Exit Function
+    If InStr(1, s, PROMPT_COUNT_TOKEN, vbBinaryCompare) > 0 Then
+        s = Replace(s, PROMPT_COUNT_TOKEN, CStr(paraCount))
+    Else
+        s = s & vbLf & "The array must contain exactly " & CStr(paraCount) & " strings."
     End If
 
-    ' Deliberate word-internal connectors.
-    If normalized = "-" _
-       Or normalized = "/" _
-       Or normalized = "'" Then
-
-        IsWordChar = True
-        Exit Function
-    End If
-
-    IsWordChar = IsUnicodeLetterOrDigit(normalized)
+    BuildRefSignSystemPrompt = s
 End Function
 
-Private Function BuildBatchJsonPrompt(ByVal refTable As String, ByVal paraTexts As Collection) As String
+' Returns the user message: data only, with explicit start/end delimiters around
+' the reference sign list and around each paragraph to be reproduced.
+Private Function BuildBatchUserMessage(ByVal refTable As String, ByVal paraTexts As Collection) As String
     Dim s As String
     Dim i As Long
-    
+
     s = ""
-    s = s & "You are editing patent claims." & vbLf
-    s = s & "Your task is to reproduce each paragraph exactly, preserving wording, numbering, punctuation, capitalization, and spacing as much as possible." & vbLf
-    s = s & "Only insert reference signs in parentheses after the corresponding claim features." & vbLf
-    s = s & "If the same term has multiple reference signs, add the first/lowest reference sign if the term is in singular, and add all reference signs as a comma-separated list inside parentehses if the term is in plural." & vbLf
-    s = s & "The reference sign table may comprise further prompts for you to consider." & vbLf
-    s = s & "Do not explain anything." & vbLf
-    s = s & "Do not add commentary." & vbLf
-    s = s & "Do not omit text." & vbLf
-    s = s & "Do not rewrite or improve the claim language." & vbLf
-    s = s & "Do not merge paragraphs." & vbLf
-    s = s & "Do not split paragraphs." & vbLf
-    s = s & "If a feature already has a reference sign, keep it and do not duplicate it." & vbLf
-    s = s & "Return ONLY valid JSON." & vbLf
-    s = s & "The JSON must have exactly one top-level object with one key named ""paragraphs""." & vbLf
-    s = s & "The value of ""paragraphs"" must be an array of strings." & vbLf
-    s = s & "The array must contain exactly " & CStr(paraTexts.Count) & " strings." & vbLf
-    s = s & "Each array element must be a JSON string and nothing else." & vbLf
-    s = s & "Each string must be the rewritten version of the corresponding input paragraph in the same order." & vbLf
-    s = s & "Do not use markdown." & vbLf
-    s = s & "Do not use code fences." & vbLf
-    s = s & "Do not output any text before or after the JSON." & vbLf
+    s = s & "The reference sign list is enclosed between the delimiter lines """ & DELIM_REFS_BEGIN & """ and """ & DELIM_REFS_END & "." & vbLf
+    s = s & "Each paragraph you must reproduce is enclosed between its own delimiter lines """ & DELIM_PARA_BEGIN & "n" & DELIM_SUFFIX & """ and """ & DELIM_PARA_END & "n" & DELIM_SUFFIX & """, where n is the paragraph number." & vbLf
+    s = s & "The delimiter lines are markup only. Never reproduce a delimiter line and never treat it as claim text." & vbLf
+    s = s & "There are " & CStr(paraTexts.Count) & " paragraphs, numbered 1 to " & CStr(paraTexts.Count) & ", and the output array must follow that order." & vbLf
     s = s & vbLf
-    s = s & "Required output example:" & vbLf
-    s = s & "{""paragraphs"":[""paragraph one..."",""paragraph two...""]}" & vbLf
-    s = s & vbLf
-    s = s & "Reference sign table:" & vbLf
-    s = s & refTable & vbLf & vbLf
-    s = s & "Paragraphs to rewrite:" & vbLf & vbLf
-    
+
+    s = s & DELIM_REFS_BEGIN & vbLf
+    s = s & refTable & vbLf
+    s = s & DELIM_REFS_END & vbLf & vbLf
+
     For i = 1 To paraTexts.Count
-        s = s & "[" & CStr(i) & "] " & paraTexts(i) & vbLf & vbLf
-        Rem s = s & paraTexts(i) & vbLf & vbLf
+        s = s & DELIM_PARA_BEGIN & CStr(i) & DELIM_SUFFIX & vbLf
+        s = s & paraTexts(i) & vbLf
+        s = s & DELIM_PARA_END & CStr(i) & DELIM_SUFFIX & vbLf & vbLf
     Next i
-    
-    BuildBatchJsonPrompt = s
+
+    BuildBatchUserMessage = s
 End Function
 
-Private Function BuildChatCompletionJson_JSONMode(ByVal modelName As String, ByVal promptText As String, ByVal temperature As Double, ByVal maxTokens As Long) As String
-    Dim systemMsg As String
-    Dim userMsg As String
+Private Function BuildChatCompletionJson_JSONMode( _
+    ByVal modelName As String, _
+    ByVal systemMsg As String, _
+    ByVal userMsg As String, _
+    ByVal temperature As Double, _
+    ByVal maxTokens As Long _
+) As String
+
     Dim json As String
-    
-    systemMsg = "You are a careful patent-editing assistant. Output only valid JSON with a top-level key named paragraphs."
-    userMsg = promptText
-    
+
     json = "{"
     json = json & """model"":""" & JsonEscape(modelName) & ""","
     json = json & """temperature"":" & FormatDotDouble(temperature) & ","
     json = json & """max_tokens"":" & CStr(maxTokens) & ","
     json = json & """response_format"":{""type"":""json_object""},"
-    If (gThinking) Then
+
+    ' Streaming is part of the request, not something a transport layer may patch
+    ' into the finished JSON afterwards.
+    ' "return_progress" makes llama.cpp emit "prompt_progress" chunks during
+    ' prefill; servers that do not know the flag simply ignore it.
+    json = json & """stream"":true,"
+    json = json & """return_progress"":true,"
+
+    ' llama.cpp emits an SSE comment ping every N seconds while the stream is
+    ' silent, which keeps the connection observable during long prompt
+    ' processing - and, more importantly, makes the server flush the response
+    ' headers immediately instead of at the first generated token. Without it,
+    ' WinINet blocks inside HttpSendRequest for the whole prefill and Word looks
+    ' frozen. Servers that do not know the field ignore it; a server that
+    ' rejects it gets a reduced retry from modHttpStream.
+    json = json & """sse_ping_interval"":1,"
+
+    If gThinking Then
         json = json & """chat_template_kwargs"":{""enable_thinking"":true},"
     Else
         json = json & """chat_template_kwargs"":{""enable_thinking"":false},"
     End If
-    json = json & """messages"":["
-    json = json & "{""role"":""system"",""content"":""" & JsonEscape(systemMsg) & """},"
-    json = json & "{""role"":""user"",""content"":""" & JsonEscape(userMsg) & """}"
-    json = json & "]"
+
+    json = json & """messages"":" & BuildMessagesArrayJson(systemMsg, userMsg)
     json = json & "}"
     
     BuildChatCompletionJson_JSONMode = json
 End Function
+
+' The bare messages array, shared by the chat-completions body and by
+' /apply-template, so both routes are guaranteed to send the same conversation.
+Private Function BuildMessagesArrayJson(ByVal systemMsg As String, _
+                                        ByVal userMsg As String) As String
+    Dim json As String
+
+    json = "["
+    json = json & "{""role"":""system"",""content"":""" & _
+                  JsonEscape(systemMsg) & """},"
+    json = json & "{""role"":""user"",""content"":""" & _
+                  JsonEscape(userMsg) & """}"
+    json = json & "]"
+
+    BuildMessagesArrayJson = json
+End Function
+
+' Body for the native llama.cpp POST /completion, which is the only documented
+' endpoint that emits "prompt_progress" during prefill. The prompt must already
+' have been rendered through /apply-template.
+'
+' Differences from the chat body that matter:
+'   * "n_predict" instead of "max_tokens".
+'   * "json_schema" instead of "response_format": /completion has no
+'     response_format, it constrains output through grammar or json_schema.
+'     The schema is stricter than {"type":"json_object"} - it requires exactly
+'     the paragraphs array of strings the parser expects.
+'   * "cache_prompt" so an unchanged system prompt is not re-evaluated on the
+'     next run; the cached share is then visible in the progress display.
+Private Function BuildCompletionJson_JSONMode( _
+    ByVal promptText As String, _
+    ByVal temperature As Double, _
+    ByVal maxTokens As Long _
+) As String
+
+    Dim json As String
+
+    json = "{"
+    json = json & """temperature"":" & FormatDotDouble(temperature) & ","
+    json = json & """n_predict"":" & CStr(maxTokens) & ","
+    json = json & """cache_prompt"":true,"
+    json = json & """stream"":true,"
+    json = json & """return_progress"":true,"
+    json = json & """sse_ping_interval"":1,"
+    json = json & """json_schema"":{""type"":""object"",""properties"":{" & _
+                  """paragraphs"":{""type"":""array""," & _
+                  """items"":{""type"":""string""}}}," & _
+                  """required"":[""paragraphs""]},"
+
+    ' Must stay last: the transport layer scopes its flag edits to the region
+    ' before the payload member, and treats "prompt" like "messages".
+    json = json & """prompt"":""" & JsonEscape(promptText) & """"
+    json = json & "}"
+
+    BuildCompletionJson_JSONMode = json
+End Function
+
 
 Private Function ShowLargeTextDialog(ByVal dialogTitle As String, ByVal dialogText As String, ByVal allowCancel As Boolean) As Boolean
     Dim f As frmPromptPreview
@@ -752,125 +791,6 @@ Private Function ParseParagraphsFromJsonObject(ByVal jsonText As String) As Coll
     Set ParseParagraphsFromJsonObject = ParseJsonStringArray(arrText)
 End Function
 
-Private Function ParseJsonStringArray(ByVal s As String) As Collection
-    Dim c As New Collection
-    Dim i As Long
-    Dim ch As String
-    Dim inString As Boolean
-    Dim escaped As Boolean
-    Dim current As String
-    
-    inString = False
-    escaped = False
-    current = ""
-    
-    For i = 1 To Len(s)
-        ch = Mid$(s, i, 1)
-        
-        If inString Then
-            If escaped Then
-                current = current & "\" & ch
-                escaped = False
-            ElseIf ch = "\" Then
-                escaped = True
-            ElseIf ch = """" Then
-                c.Add JsonUnescape(current)
-                current = ""
-                inString = False
-            Else
-                current = current & ch
-            End If
-        Else
-            If ch = """" Then
-                inString = True
-                current = ""
-            ElseIf ch = "[" Or ch = "]" Or ch = "{" Or ch = "}" Then
-                Set ParseJsonStringArray = Nothing
-                Exit Function
-            End If
-        End If
-    Next i
-    
-    If inString Or escaped Then
-        Set ParseJsonStringArray = Nothing
-        Exit Function
-    End If
-    
-    Set ParseJsonStringArray = c
-End Function
-
-Private Function FindMatchingBracket(ByVal s As String, ByVal openPos As Long) As Long
-    Dim i As Long
-    Dim depth As Long
-    Dim inString As Boolean
-    Dim escaped As Boolean
-    Dim ch As String
-    
-    depth = 0
-    inString = False
-    escaped = False
-    
-    For i = openPos To Len(s)
-        ch = Mid$(s, i, 1)
-        
-        If inString Then
-            If escaped Then
-                escaped = False
-            ElseIf ch = "\" Then
-                escaped = True
-            ElseIf ch = """" Then
-                inString = False
-            End If
-        Else
-            If ch = """" Then
-                inString = True
-            ElseIf ch = "[" Then
-                depth = depth + 1
-            ElseIf ch = "]" Then
-                depth = depth - 1
-                If depth = 0 Then
-                    FindMatchingBracket = i
-                    Exit Function
-                End If
-            End If
-        End If
-    Next i
-    
-    FindMatchingBracket = 0
-End Function
-
-Private Function GetParagraphTextWithoutMark(ByVal rng As Range) As String
-    Dim s As String
-    s = rng.Text
-    If Len(s) > 0 Then
-        If Right$(s, 1) = vbCr Then
-            s = Left$(s, Len(s) - 1)
-        End If
-    End If
-    GetParagraphTextWithoutMark = s
-End Function
-
-Private Function IsSubstantiveParagraph(ByVal s As String) As Boolean
-    Dim t As String
-    t = Replace(s, vbCr, "")
-    t = Replace(t, vbLf, "")
-    t = Trim$(t)
-    IsSubstantiveParagraph = (t <> "")
-End Function
-
-Private Function NormalizeParagraphText(ByVal s As String) As String
-    s = Replace(s, vbCrLf, vbLf)
-    s = Replace(s, vbCr, vbLf)
-    
-    Do While Len(s) > 0 And Right$(s, 1) = vbLf
-        s = Left$(s, Len(s) - 1)
-    Loop
-    
-    NormalizeParagraphText = s
-End Function
-
-
-
 Private Function ExtractAssistantContent(ByVal jsonText As String) As String
     Dim pChoices As Long
     Dim pMsg As Long
@@ -887,7 +807,8 @@ Private Function ExtractAssistantContent(ByVal jsonText As String) As String
     pContent = InStr(pMsg, jsonText, """content""", vbTextCompare)
     If pContent = 0 Then Exit Function
     
-    pValue = InStr(pContent + 9, jsonText, """")
+    ' Was: InStr(pContent + 9, jsonText, """) - an unterminated string literal.
+    pValue = InStr(pContent + 9, jsonText, Chr$(34))
     If pValue = 0 Then Exit Function
     pValue = pValue + 1
     
@@ -898,177 +819,6 @@ Private Function ExtractAssistantContent(ByVal jsonText As String) As String
 End Function
 
 
-Private Function FindJsonStringEnd(ByVal s As String, ByVal startPos As Long) As Long
-    Dim i As Long
-    Dim ch As String
-    Dim escaped As Boolean
-    
-    escaped = False
-    For i = startPos To Len(s)
-        ch = Mid$(s, i, 1)
-        If escaped Then
-            escaped = False
-        ElseIf ch = "\" Then
-            escaped = True
-        ElseIf ch = """" Then
-            FindJsonStringEnd = i
-            Exit Function
-        End If
-    Next i
-    
-    FindJsonStringEnd = 0
-End Function
-
-Private Function JsonEscape(ByVal s As String) As String
-    Dim i As Long
-    Dim ch As String
-    Dim code As Long
-    Dim result As String
-    
-    result = ""
-    
-    For i = 1 To Len(s)
-        ch = Mid$(s, i, 1)
-        code = AscW(ch)
-        
-        Select Case code
-            Case 34
-                result = result & "\"""
-            Case 92
-                result = result & "\\"
-            Case 8
-                result = result & "\b"
-            Case 9
-                result = result & "\t"
-            Case 10
-                result = result & "\n"
-            Case 12
-                result = result & "\f"
-            Case 13
-                result = result & "\r"
-            Case 0 To 31
-                result = result & "\u" & Right$("0000" & Hex$(code), 4)
-            Case Else
-                result = result & ch
-        End Select
-    Next i
-    
-    JsonEscape = result
-End Function
-
-Private Function JsonUnescape(ByVal s As String) As String
-    Dim i As Long
-    Dim ch As String
-    Dim escaped As Boolean
-    Dim result As String
-    Dim hex4 As String
-    
-    escaped = False
-    result = ""
-    
-    i = 1
-    Do While i <= Len(s)
-        ch = Mid$(s, i, 1)
-        
-        If escaped Then
-            Select Case ch
-                Case "n"
-                    result = result & vbLf
-                Case "r"
-                    result = result & vbCr
-                Case "t"
-                    result = result & vbTab
-                Case "b"
-                    result = result & Chr$(8)
-                Case "f"
-                    result = result & Chr$(12)
-                Case """"
-                    result = result & """"
-                Case "\"
-                    result = result & "\"
-                Case "u"
-                    If i + 4 <= Len(s) Then
-                        hex4 = Mid$(s, i + 1, 4)
-                        If IsHex4(hex4) Then
-                            result = result & ChrW$(CLng("&H" & hex4))
-                            i = i + 4
-                        Else
-                            result = result & "\u"
-                        End If
-                    Else
-                        result = result & "\u"
-                    End If
-                Case Else
-                    result = result & "\" & ch
-            End Select
-            escaped = False
-        ElseIf ch = "\" Then
-            escaped = True
-        Else
-            result = result & ch
-        End If
-        
-        i = i + 1
-    Loop
-    
-    If escaped Then
-        result = result & "\"
-    End If
-    
-    JsonUnescape = result
-End Function
-
-Private Function IsHex4(ByVal s As String) As Boolean
-    Dim i As Long
-    Dim ch As String
-    
-    If Len(s) <> 4 Then Exit Function
-    
-    For i = 1 To 4
-        ch = Mid$(s, i, 1)
-        If InStr(1, "0123456789ABCDEFabcdef", ch, vbBinaryCompare) = 0 Then
-            Exit Function
-        End If
-    Next i
-    
-    IsHex4 = True
-End Function
-
-Private Function CleanupModelOutput(ByVal s As String) As String
-    s = Replace(s, vbCrLf, vbLf)
-    s = Replace(s, vbCr, vbLf)
-    s = Trim$(s)
-    
-    If Left$(s, 3) = "```" Then
-        s = StripCodeFences(s)
-    End If
-    
-    CleanupModelOutput = Trim$(s)
-End Function
-
-Private Function StripCodeFences(ByVal s As String) As String
-    Dim lines() As String
-    Dim i As Long
-    Dim result As String
-    Dim t As String
-    
-    s = Replace(s, vbCrLf, vbLf)
-    s = Replace(s, vbCr, vbLf)
-    lines = Split(s, vbLf)
-    
-    For i = LBound(lines) To UBound(lines)
-        t = Trim$(lines(i))
-        If Left$(t, 3) <> "```" Then
-            If result = "" Then
-                result = lines(i)
-            Else
-                result = result & vbLf & lines(i)
-            End If
-        End If
-    Next i
-    
-    StripCodeFences = Trim$(result)
-End Function
 
 Private Function FixNumberingTab(ByVal s As String) As String
     If Len(s) >= 4 Then
@@ -1121,86 +871,6 @@ Private Function StripLeadingBracketNumber(ByVal s As String) As String
     End If
 End Function
 
-Private Function IsAllDigitsText(ByVal s As String) As Boolean
-    Dim i As Long
-    Dim ch As String
-    
-    If Len(s) = 0 Then Exit Function
-    
-    For i = 1 To Len(s)
-        ch = Mid$(s, i, 1)
-        If ch < "0" Or ch > "9" Then Exit Function
-    Next i
-    
-    IsAllDigitsText = True
-End Function
-
-
-' This is for debugging
-Private Function CharCodes(ByVal s As String) As String
-    Dim i As Long
-    Dim result As String
-
-    For i = 1 To Len(s)
-        If Len(result) > 0 Then result = result & " "
-        result = result & "U+" & Right$("0000" & Hex$(AscW(Mid$(s, i, 1))), 4)
-    Next i
-
-    CharCodes = result
-End Function
-
-
-Private Function NormalizeAnalysisText(ByVal s As String) As String
-    ' Dash-like characters -> standard hyphen
-    s = Replace(s, ChrW(&H2010), "-") ' hyphen
-    s = Replace(s, ChrW(&H2011), "-") ' non-breaking hyphen
-    s = Replace(s, ChrW(&H2012), "-") ' figure dash
-    s = Replace(s, ChrW(&H2013), "-") ' en dash
-    s = Replace(s, ChrW(&H2014), "-") ' em dash
-    s = Replace(s, ChrW(&H2015), "-") ' horizontal bar
-    s = Replace(s, ChrW(&H2212), "-") ' minus sign
-    ' Additional dash-like characters that may appear in Word and should become "-"
-    s = Replace(s, ChrW(&H2043), "-")   ' hyphen bullet
-    s = Replace(s, ChrW(&HFF0D), "-")   ' fullwidth hyphen-minus
-        
-    ' RS (0x1E) used by some chatbots as weird hyphen-like separator -> treat as hyphen
-    s = Replace(s, ChrW(&H1E), "-")
-    s = Replace(s, ChrW(&HFE63), "-")  ' small hyphen-minus, also used by some LLMs as hypen separator
-    
-    ' Apostrophe-like characters -> straight apostrophe
-    s = Replace(s, ChrW(&H2018), "'") ' left single quotation mark
-    s = Replace(s, ChrW(&H2019), "'") ' right single quotation mark / apostrophe
-    s = Replace(s, ChrW(&H201B), "'") ' single high-reversed-9 quotation mark
-    s = Replace(s, ChrW(&H2032), "'") ' prime
-    s = Replace(s, ChrW(&HB4), "'")   ' acute accent often used as apostrophe
-    
-    ' Space-like characters -> normal space
-    s = Replace(s, ChrW(&HA0), " ")   ' no-break space
-    s = Replace(s, ChrW(&H2000), " ") ' en quad
-    s = Replace(s, ChrW(&H2001), " ") ' em quad
-    s = Replace(s, ChrW(&H2002), " ") ' en space
-    s = Replace(s, ChrW(&H2003), " ") ' em space
-    s = Replace(s, ChrW(&H2004), " ") ' three-per-em space
-    s = Replace(s, ChrW(&H2005), " ") ' four-per-em space
-    s = Replace(s, ChrW(&H2006), " ") ' six-per-em space
-    s = Replace(s, ChrW(&H2007), " ") ' figure space
-    s = Replace(s, ChrW(&H2008), " ") ' punctuation space
-    s = Replace(s, ChrW(&H2009), " ") ' thin space
-    s = Replace(s, ChrW(&H200A), " ") ' hair space
-    s = Replace(s, ChrW(&H202F), " ") ' narrow no-break space
-    s = Replace(s, ChrW(&H205F), " ") ' medium mathematical space
-    s = Replace(s, ChrW(&H3000), " ") ' ideographic space
-    
-    ' Remove invisible format/control chars that should not affect matching
-    s = Replace(s, ChrW(&HAD), "")    ' soft hyphen
-    s = Replace(s, ChrW(&H200B), "")  ' zero width space
-    s = Replace(s, ChrW(&H200C), "")  ' zero width non-joiner
-    s = Replace(s, ChrW(&H200D), "")  ' zero width joiner
-    s = Replace(s, ChrW(&H2060), "")  ' word joiner
-    s = Replace(s, ChrW(&HFEFF), "")  ' zero width no-break space / BOM
-    
-    NormalizeAnalysisText = s
-End Function
 
 Private Function CanonicalWordForCompare(ByVal s As String) As String
     s = NormalizeAnalysisText(s)
@@ -1236,23 +906,6 @@ Private Function CollectRefsForMatchedWords( _
     CollectRefsForMatchedWords = result
 End Function
 
-Sub ShowSelectedCharCodes()
-    Dim s As String
-    Dim i As Long
-    Dim ch As String
-    Dim msg As String
-
-    s = Selection.Text
-
-    For i = 1 To Len(s)
-        ch = Mid$(s, i, 1)
-        msg = msg & "'" & ch & "'  Hex=" & Hex$(AscW(ch)) & "  Dec=" & AscW(ch) & vbCrLf
-    Next i
-
-    MsgBox msg, vbInformation, "Selected character codes"
-End Sub
-
-
 Private Function GetFinishReason(ByVal jsonText As String) As String
     Dim pChoices As Long
     Dim pFinish As Long
@@ -1269,7 +922,7 @@ Private Function GetFinishReason(ByVal jsonText As String) As String
     pColon = InStr(pFinish, jsonText, ":")
     If pColon = 0 Then Exit Function
     
-    pQuote1 = InStr(pColon + 1, jsonText, """")
+	pQuote1 = InStr(pColon + 1, jsonText, Chr$(34))
     If pQuote1 = 0 Then Exit Function
     
     pQuote2 = FindJsonStringEnd(jsonText, pQuote1 + 1)
@@ -1456,151 +1109,4 @@ Private Function ExtractCanonicalWordsForParagraph(ByVal s As String) As Collect
     Next i
     
     Set ExtractCanonicalWordsForParagraph = result
-End Function
-
-
-Public Function FetchModelList(ByVal rawApiUrl As String, ByRef modelNames As Collection, ByRef errorText As String) As Boolean
-    Dim base As String
-    Dim url As String
-    Dim http As Object
-    Dim body As String
-    Dim lowerBody As String
-    Dim recvMs As Long
-    Dim pData As Long
-    Dim arrStart As Long
-    Dim arrEnd As Long
-    Dim scanSrc As String
-    Dim i As Long
-    Dim pId As Long
-    Dim nextPos As Long
-    Dim ch As String
-    Dim colonFound As Boolean
-    Dim openQuote As Long
-    Dim qValEnd As Long
-    Dim valStr As String
-    Dim k As Long
-    Dim isDup As Boolean
-    
-    ' GET {base}/v1/models and collect the "id" value of every entry in the model list.
-    ' Reuses FindMatchingBracket / FindJsonStringEnd / JsonUnescape from this module; the scan
-    ' below is deliberately heuristic, same pragmatic style as the other JSON handling here.
-    
-    Set modelNames = New Collection
-    errorText = ""
-    
-    base = NormalizeApiBaseUrl(Trim$(rawApiUrl))
-    If LCase$(Left$(base, 5)) <> "http:" And LCase$(Left$(base, 6)) <> "https:" Then
-        errorText = "Enter a valid http(s) base URL first."
-        Exit Function
-    End If
-    
-    url = base & "/v1/models"
-    
-    Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
-    recvMs = gTimeoutSec * 1000
-    If recvMs > 30000 Then recvMs = 30000   ' a model list should arrive quickly; keep the dialog responsive
-    
-    http.SetTimeouts 5000, 8000, 5000, recvMs
-    
-    On Error Resume Next
-    http.Open "GET", url, False
-    If Err.Number <> 0 Then
-        errorText = "Could not reach the server at this URL."
-        Exit Function
-    End If
-    If Len(Trim$(gApiKey)) > 0 Then
-        http.SetRequestHeader "Authorization", "Bearer " & Trim$(gApiKey)
-    End If
-    http.Send
-    If Err.Number <> 0 Then
-        errorText = "The request for the model list failed."
-        Exit Function
-    End If
-    On Error GoTo 0
-    
-    If CInt(http.Status) <> 200 Then
-        If http.Status = 401 Or http.Status = 403 Then
-            errorText = "Access denied (HTTP " & CStr(http.Status) & "). Check URL and API key."
-        ElseIf http.Status = 404 Then
-            errorText = "This server has no /v1/models endpoint (HTTP 404)."
-        Else
-            errorText = "Server error (HTTP " & CStr(http.Status) & ")."
-        End If
-        Exit Function
-    End If
-    
-    body = http.responseText
-    lowerBody = LCase$(body)
-    
-    ' Primary shape: {"data": [ ... ]}; some servers answer with a bare top-level array.
-    pData = InStr(1, lowerBody, """data""")
-    arrStart = 0
-    If pData > 0 Then
-        arrStart = InStr(pData + 5, body, "[")
-    Else
-        If Left$(Trim$(body), 1) = "[" Then
-            arrStart = InStr(1, body, "[")
-        End If
-    End If
-    If arrStart = 0 Then
-        errorText = "The server response contains no model list."
-        Exit Function
-    End If
-    
-    arrEnd = FindMatchingBracket(body, arrStart)
-    If arrEnd < arrStart + 1 Then
-        errorText = "Malformed model list in the server response."
-        Exit Function
-    End If
-    
-    scanSrc = Mid$(body, arrStart + 1, arrEnd - arrStart - 1)
-    
-    ' Structural JSON keys are the only unescaped occurrences of literal quoted text like "id"
-    ' (quotes inside string values arrive escaped), so scanning for key-then-value pairs here is safe.
-    i = 1
-    Do While i <= Len(scanSrc)
-        pId = InStr(i, scanSrc, """id""", vbBinaryCompare)
-        If pId = 0 Then Exit Do
-        
-        colonFound = False
-        openQuote = 0
-        nextPos = pId + 4   ' first character after the closing quote of the "id" key
-        Do While nextPos <= Len(scanSrc) And (Mid$(scanSrc, nextPos, 1) = " ")
-            nextPos = nextPos + 1
-        Loop
-        If nextPos > Len(scanSrc) Then Exit Do   ' malformed: no colon after the key; nothing more to scan
-        
-        ch = Mid$(scanSrc, nextPos, 1)
-        If ch <> ":" Then
-            i = nextPos    ' not a key we understand (e.g. "identity"); skip this occurrence
-        Else
-            Do While nextPos < Len(scanSrc) And (Mid$(scanSrc, nextPos + 1, 1) = " ")
-                nextPos = nextPos + 1
-            Loop
-            openQuote = nextPos + 1
-            If InStr(1, Mid$(scanSrc, openQuote), Chr$(34)) = 0 Or Left$(Mid$(scanSrc, openQuote), 1) <> Chr$(34) Then
-                i = pId + 4     ' value is not a JSON string (unexpected); skip this occurrence
-            Else
-                qValEnd = FindJsonStringEnd(scanSrc, openQuote + 1)
-                If qValEnd < openQuote + 1 Then Exit Do   ' unterminated string: stop, let zero-found handle it
-                valStr = JsonUnescape(Mid$(scanSrc, openQuote + 1, qValEnd - openQuote - 1))
-                If Len(Trim$(valStr)) > 0 Then
-                    isDup = False
-                    For k = 1 To modelNames.Count
-                        If LCase$(modelNames(k)) = LCase$(valStr) Then isDup = True
-                    Next k
-                    If Not isDup Then modelNames.Add valStr
-                End If
-                i = qValEnd + 1
-            End If
-        End If
-    Loop
-    
-    If modelNames.Count = 0 Then
-        errorText = "The server reported no models."
-        Exit Function
-    End If
-    FetchModelList = True
-    
-    ' success: caller selects the first item and displays the green status line.
 End Function

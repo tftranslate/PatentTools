@@ -17,7 +17,7 @@ End Sub
 
 Public Sub PatentTools_About(ByVal control As IRibbonControl)
     MsgBox _
-        "Patent Tools" & vbCrLf & vbCrLf & _
+        "Patent Tools v" & TOOL_VERSION & vbCrLf & vbCrLf & _
         "Reference-sign insertion for patent claims." & vbCrLf & vbCrLf & _
         "Copyright (c) 2026 Tobias Ernst" & vbCrLf & _
         "Licensed under the MIT License." & vbCrLf & vbCrLf & _
@@ -26,5 +26,3 @@ Public Sub PatentTools_About(ByVal control As IRibbonControl)
         vbInformation, _
         "About Patent Tools"
 End Sub
-
-
