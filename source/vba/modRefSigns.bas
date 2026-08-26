@@ -485,6 +485,18 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
         
         Else
             
+            ' --- Forward Skip Catch-Up: tolerate omission of up to 2 original tokens ---
+            Dim skip As Long
+            For skip = 1 To 2
+                If iO + skip > oWordsPos.Count Then Exit For
+                If CanonicalWordForCompare(CStr(oWordsPos(iO + skip)(0))) = canonM Then
+                    ' Model omitted (skip) tokens starting at iO. Advance original past them.
+                    iO = iO + skip + 1
+                    iM = iM + 1
+                    GoTo NextLoop
+                End If
+            Next skip
+            
             If gDebug Then
               MsgBox "DEBUG 3 - Direct token mismatch, trying merge" & vbCrLf & _
                 "iO = " & iO & ", iM = " & iM & vbCrLf & _

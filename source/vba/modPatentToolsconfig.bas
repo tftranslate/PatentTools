@@ -94,7 +94,7 @@ Public Function DEF_PromptPopulate	() As String
     s = s & "# Task" & vbLf
     s = s & "The task is a data extraction task." & vbLf
     s = s & "Scan the patent description for reference signs and the elements designated by them." & vbLf
-    s = s & "Compile a comprehensive table of reference signs with elements designated thereby." & vbLf
+    s = s & "Compile a comprehensive table of all reference signs that occur in the patent description with elements designated thereby." & vbLf
     s = s & "The table will be used as a guidance to a patent paralegal tasked with inserting reference signs in parentheses into the claims under European patent practice." & vbLf
     s = s & vbLf
     s = s & "# Definitions" & vbLf
@@ -124,8 +124,7 @@ Public Function DEF_PromptPopulate	() As String
     s = s & "After the table, you may output fan empty line and, in starting from the next line after the empty line, further observations." & vbLf
     s = s & vbLf
     s = s & "## Table" & vbLf
-    s = s & "The table must contain all reference signs for all structural elements, for all functional elements, for all flowchart steps and for all process steps and for all method steps designated with a reference sign" & vbLf
-    s = s & "anywhere in the description." & vbLf
+    s = s & "The table must contain all reference signs that occur in the description. I.e., we want all reference signs for all structural elements, for all functional elements, for all flowchart steps and for all process steps and for all method steps designated with a reference sign anywhere in the description." & vbLf
     s = s & vbLf
     s = s & "Do not spend time sorting the table." & vbLf
     s = s & vbLf
