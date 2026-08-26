@@ -12,8 +12,10 @@ The project uses semantic-style versioning while it remains in pre-1.0 developme
 - Table of reference signs is now persistent on a document level.
 - Call model in streaming mode for better progress feedback.
 - System prompt for reference sign insertion is now mostly user-editable.
+- Support for gpt-oss-120b
 
 ### Changed
+- Changed the matching logic to recover from cases where the model omits up to two tokens. This helps with gpt-oss, which tends to omit the claim number in the preamble feature.
 - Separated editing the reference sign table and inserting reference into two separate ribbon icons.
 - Reworked the settings dialog.
 - Heavy editing on the README, removed fluff, adapted to latest version.

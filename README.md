@@ -89,6 +89,8 @@ Recommended safe usage:
 This add-in has been validated with:
 
 - **Model:** gemma-4 31b, qwen-3.8 27b, and gpt-oss-120b
+
+  Note: For gemma and qwen, turn ```thinking```off for claim insertion, but on for population. For gpt-oss, turn ```thinking```off for both.
 - **Mode:** non-thinking mode / low reasoning effort
 - **Endpoint type:** OpenAI-compatible chat completions API
 
@@ -202,15 +204,60 @@ This error message occurs when the model outputs extra words or otherwise reorde
 
 ### Repository contents
 
-Typical repository structure:
+Current repository structure:
 
 ```
-textPatentTools/
-├─ PatentTools.dotm
-├─ README.md
-└─ docs/
-   └─ settings-dialog.png
+.github/
+  FUNDING.yml
+.gitignore
+AI_USAGE.md
+BUILD.md
+Build-PatentTools.cmd
+CHANGELOG.md
+LICENSE
+README.md
+docs/
+  screenshot.png
+scripts/
+  Build-PatentTools.ps1
+source/
+  package/
+    [Content_Types].xml
+    _rels/
+      .rels
+  ribbon/
+    customUI/
+      _rels/
+        customUI14.xml.rels
+      customUI14.xml
+      images/
+        refsignicon.png
+  vba/
+    frmPatentToolsSettings.frm
+    frmPatentToolsSettings.frx
+    frmPromptPreview.frm
+    frmPromptPreview.frx
+    frmRefList.frm
+    frmRefList.frx
+    modHttpStream.bas
+    modJsonHelper.bas
+    modPatentToolsconfig.bas
+    modRefSigns.bas
+    modRibbon.bas
+template/
+  PatentTools.base.dotm
 ```
+
+| Directory / File | Purpose |
+|---|---|
+| `source/vba/` | VBA module, form, and frx files (macros) |
+| `source/ribbon/` | Custom UI XML defining the Ribbon tab and icons |
+| `source/package/` | OPC package structure for rebuilding `.dotm` from source |
+| `template/` | The base template (`PatentTools.base.dotm`) used to build `.dotm` |
+| `scripts/` | PowerShell helper scripts for building the add-in |
+| `docs/` | Screenshots and images |
+| `.github/FUNDING.yml` | Donation configuration for "Buy me a coffee" link |
+| `AI_USAGE.md`, `BUILD.md` | Project documentation for AI usage and build process |
 
 ## Status
 

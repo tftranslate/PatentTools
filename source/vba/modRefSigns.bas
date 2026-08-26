@@ -252,6 +252,7 @@ Public Sub Insert_Reference_Signs()
     Next i
  
     
+    
     targetDoc.TrackRevisions = oldTrackRevisions
     trackRevisionsSaved = False
     
@@ -785,6 +786,11 @@ Private Function BuildChatCompletionJson_JSONMode( _
         json = json & """chat_template_kwargs"":{""enable_thinking"":false},"
     End If
 
+    ' Universal override to suppress internal reasoning for models that use reasoning_effort (e.g., gpt-oss)
+    If Not gThinking Then
+        json = json & """reasoning_effort"":""low"","
+    End If
+
     json = json & """messages"":" & BuildMessagesArrayJson(systemMsg, userMsg)
     json = json & "}"
     
@@ -830,6 +836,11 @@ Private Function BuildChatCompletionJson_PlaintextMode( _
         json = json & """chat_template_kwargs"":{""enable_thinking"":true},"
     Else
         json = json & """chat_template_kwargs"":{""enable_thinking"":false},"
+    End If
+
+    ' Universal override to suppress internal reasoning for models that use reasoning_effort (e.g., gpt-oss)
+    If Not gThinkPopulation Then
+        json = json & """reasoning_effort"":""low"","
     End If
 
     json = json & """messages"": " & BuildMessagesArrayJson(systemMsg, userMsg)
