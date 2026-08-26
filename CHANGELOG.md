@@ -4,8 +4,9 @@ All notable changes to PatentTools for Microsoft Word are documented in this fil
 
 The project uses semantic-style versioning while it remains in pre-1.0 development.
 
-## [0.2.0-beta - work in progress - not yet released]
+## [0.2.0-beta]
 ### Added
+- Populate list of reference signs based on description. Go to "Edit reference sign list", click on "Populate".
 - Verification of API connection
 - Auto-detection of available models
 - Table of reference signs is now persistent on a document level.
@@ -14,14 +15,19 @@ The project uses semantic-style versioning while it remains in pre-1.0 developme
 
 ### Changed
 - Separated editing the reference sign table and inserting reference into two separate ribbon icons.
-- Reworked the settings dialog in preparation for further functionality.
+- Reworked the settings dialog.
+- Heavy editing on the README, removed fluff, adapted to latest version.
+- Added a bogus description to the already present bogus claims for testing the population feature.
 
 ## Fixed
 
 - Unicode processing should now work on Mac
 
-### To be done
-- Implement auto-population of list of reference signs from description
+### TBD
+
+- Try to make it work with other models
+- Updated Screenshots etc.
+- Export and Import settings.
 
 ## [0.1.1] - 2026-08-17
 

@@ -293,6 +293,110 @@ Private Function GetPersistedReferenceList() As String
     GetPersistedReferenceList = refList
 End Function
 
+Public Function Populate_Reference_Sign_Table() As String
+    Dim workRange As Range
+    Dim userMessage As String
+    Dim systemPrompt As String
+    Dim endpoint As String
+    Dim requestJson As String
+    Dim assistantText As String
+    Dim finishReason As String
+    Dim streamError As String
+    Dim baseUrl As String
+    Dim renderedPrompt As String
+    Dim usedNativeRoute As Boolean
+    
+    ' 1. Load settings to initialize global variables (gApiUrl, gApiKey, etc.)
+    LoadPatentToolsSettings
+    
+    ' 2. Determine the text to send as user message
+    On Error Resume Next
+    If Not Selection Is Nothing Then
+        If Len(Trim$(Replace(Selection.Range.Text, vbCr, ""))) > 0 Then
+            Set workRange = Selection.Range.Duplicate
+        Else
+            Set workRange = ActiveDocument.Content
+        End If
+    Else
+        Set workRange = ActiveDocument.Content
+    End If
+    On Error GoTo 0
+    
+    userMessage = "Here is the patent description text. Scan it for reference signs (e.g., ""(10)"", ""(2)"", ""(3)"") and compile a list of unique reference signs found." & vbCrLf & vbCrLf & workRange.Text
+    
+    ' 3. Build the request
+    systemPrompt = gPromptPopulate
+    If Trim$(systemPrompt) = "" Then systemPrompt = DEF_PromptPopulate()
+    baseUrl = NormalizeApiBaseUrl(gApiUrl)
+
+    ' Route selection. Both backends are supported:
+    '
+    '   llama.cpp  -> /apply-template + /completion, the only documented way to
+    '                 receive real "prompt_progress" during prefill.
+    '   Ollama     -> /v1/chat/completions, which reports no progress; the
+    '                 status bar then shows a calibrated estimate.
+    '
+    ' The native route is skipped when thinking is enabled: it constrains output
+    ' with json_schema from the very first token, which leaves no room for a
+    ' reasoning block, and /apply-template takes no chat_template_kwargs.
+    usedNativeRoute = False
+
+    If Not gThinkPopulation Then
+        If PT_HasNativeProgressApi(baseUrl) Then
+            If PT_ApplyTemplate(baseUrl, _
+                    BuildMessagesArrayJson(systemPrompt, userMessage), _
+                    gApiKey, gTimeoutSecPopulate, renderedPrompt, streamError) Then
+                endpoint = baseUrl & "/completion"
+                requestJson = BuildCompletionJson_JSONMode( _
+                    renderedPrompt, gTempPopulate, gMaxTokens)
+                usedNativeRoute = True
+            End If
+        End If
+    End If
+
+    If Not usedNativeRoute Then
+        ' Fallback, and the normal path for Ollama. Any error from the probe or
+        ' the template call is deliberately discarded: it is not a failure.
+        streamError = ""
+        endpoint = baseUrl & "/v1/chat/completions"
+        requestJson = BuildChatCompletionJson_PlaintextMode( _
+            gModelName, systemPrompt, userMessage, gTempPopulate, gMaxTokens)
+    End If
+        
+    ' 4. Call the model
+    If gDebug Then
+        Dim debugInfo As String
+        debugInfo = "=== POPULATE REQUEST JSON ===" & vbCrLf & vbCrLf
+        debugInfo = debugInfo & requestJson
+        ShowLargeTextDialog "Debug: Populate Request JSON", debugInfo, False
+    End If
+    
+    If usedNativeRoute Then
+        Application.StatusBar = "Calling model with prompt-progress reporting ..."
+    Else
+        Application.StatusBar = "Calling model (timeout " & CStr(gTimeoutSecPopulate) & _
+                                " s per idle period) ..."
+    End If
+    
+    If StreamChatCompletion( _
+            endpoint, requestJson, _
+            assistantText, finishReason, streamError, _
+            gTimeoutSecPopulate, gApiKey) Then
+        
+        assistantText = CleanupModelOutput(assistantText)
+        
+        If Trim$(assistantText) = "" Then
+            Populate_Reference_Sign_Table = "The model returned an empty response."
+        Else
+            Populate_Reference_Sign_Table = assistantText
+        End If
+    Else
+        Populate_Reference_Sign_Table = "Model call failed: " & streamError
+    End If
+    
+    Application.StatusBar = ""
+End Function
+
 Public Sub PatentTools_EditReferenceSigns(control As IRibbonControl)
     ' Callback for the "Edit reference signs" ribbon button.
     ' Opens the reference sign list dialog directly (without auto-prompting).
@@ -673,6 +777,53 @@ Private Function BuildChatCompletionJson_JSONMode( _
     json = json & "}"
     
     BuildChatCompletionJson_JSONMode = json
+End Function
+
+' Builds a chat completion request body specifically for the population process.
+' Unlike the insertion version, it omits "response_format": "json_object" so that
+' the model returns plain text (the markdown table of reference signs) instead of
+' trying to format the output as a JSON structure.
+Private Function BuildChatCompletionJson_PlaintextMode( _
+    ByVal modelName As String, _
+    ByVal systemMsg As String, _
+    ByVal userMsg As String, _
+    ByVal temperature As Double, _
+    ByVal maxTokens As Long _
+) As String
+
+    Dim json As String
+
+    json = "{"
+    json = json & """model"":""" & JsonEscape(modelName) & """" & ","
+    json = json & """temperature"": " & FormatDotDouble(temperature) & ","
+    json = json & """max_tokens"": " & CStr(maxTokens) & ","
+
+    ' Streaming is part of the request, not something a transport layer may patch
+    ' into the finished JSON afterwards.
+    ' "return_progress" makes llama.cpp emit "prompt_progress" chunks during
+    ' prefill; servers that do not know the flag simply ignore it.
+    json = json & """stream"":true,"
+    json = json & """return_progress"":true,"
+
+    ' llama.cpp emits an SSE comment ping every N seconds while the stream is
+    ' silent, which keeps the connection observable during long prompt
+    ' processing - and, more importantly, makes the server flush the response
+    ' headers immediately instead of at the first generated token. Without it,
+    ' WinINet blocks inside HttpSendRequest for the whole prefill and Word looks
+    ' frozen. Servers that do not know the field ignore it; a server that
+    ' rejects it gets a reduced retry from modHttpStream.
+    json = json & """sse_ping_interval"":1,"
+
+    If gThinkPopulation Then
+        json = json & """chat_template_kwargs"":{""enable_thinking"":true},"
+    Else
+        json = json & """chat_template_kwargs"":{""enable_thinking"":false},"
+    End If
+
+    json = json & """messages"": " & BuildMessagesArrayJson(systemMsg, userMsg)
+    json = json & "}"
+    
+    BuildChatCompletionJson_PlaintextMode = json
 End Function
 
 ' The bare messages array, shared by the chat-completions body and by

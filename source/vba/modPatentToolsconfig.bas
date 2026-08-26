@@ -14,23 +14,30 @@ Public gTemperature As Double
 Public gTimeoutSec As Long
 Public gMaxTokens As Long
 Public gThinking As Boolean
+Public gTempPopulate As Double
+Public gTimeoutSecPopulate As Long
+Public gThinkPopulation As Boolean
 Public gDebug As Boolean
-Public gPromptInsert As String
+Public gPromptInsert   As String
+Public gPromptPopulate As String
 
 Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
 ' Tool release version.
-Public Const TOOL_VERSION As String = "0.2.0-beta"
+Public Const TOOL_VERSION As String = "0.2.0"
 
 ' Single source of truth: factory-default values for all globally persisted settings.
 Private Const DEF_ApiUrl      As String    = "http://localhost:11434"
 Private Const DEF_ApiKey      As String    = ""
 Private Const DEF_ModelName   As String    = "gemma4:12b"
-Private Const DEF_Temperature As Double    = 0.2
-Private Const DEF_TimeoutSec  As Long      = 120
-Private Const DEF_MaxTokens   As Long      = 32768
-Private Const DEF_Thinking    As Boolean   = False
+Private Const DEF_Temperature  As Double     = 0.2
+Private Const DEF_TimeoutSec   As Long       = 120
+Private Const DEF_MaxTokens    As Long       = 32768
+Private Const DEF_Thinking     As Boolean    = False
+Private Const DEF_TempPopulate As Double     = 0.6
+Private Const DEF_TimeoutSecPopulate As Long = 600
+Private Const DEF_ThinkPopulation As Boolean = True
 Private Const DEF_Debug       As Boolean   = False
 ' DEF_PromptInsert is not a Const: the factory system prompt is a multi-line text and
 ' exceeds what a single Const statement can hold within VBA's line-continuation limit.
@@ -76,6 +83,91 @@ Public Function DEF_PromptInsert() As String
     s = s & "{""paragraphs"":[""paragraph one..."",""paragraph two...""]}"
 
     DEF_PromptInsert = s
+End Function
+
+' Factory default system prompt for the population process: scan a patent description
+' for reference-sign usage and compile a table of designated elements (content of
+' PopulationPrompt.md). Mirrors DEF_PromptInsert in mechanism; only the text differs.
+Public Function DEF_PromptPopulate	() As String
+    Dim s As String
+
+    s = s & "# Task" & vbLf
+    s = s & "The task is a data extraction task." & vbLf
+    s = s & "Scan the patent description for reference signs and the elements designated by them." & vbLf
+    s = s & "Compile a comprehensive table of reference signs with elements designated thereby." & vbLf
+    s = s & "The table will be used as a guidance to a patent paralegal tasked with inserting reference signs in parentheses into the claims under European patent practice." & vbLf
+    s = s & vbLf
+    s = s & "# Definitions" & vbLf
+    s = s & "A ""designated element"" may be a noun, a compound noun, a combination of qualifier + noun/compound noun, or in some cases also a verb in -ing form. It is a structural element, functional element or a method step or decision block that is designed in the figures by the reference sign." & vbLf
+    s = s & "A ""reference sign"" is usually a one to four digit number. Sometimes the reference sign may also comprise a letter, as in ""71a"" or ""S130"", or may only be uppercase letters, like in ""SW"" or ""C"". The reference sign may relate to any structural element, functional element or method step, process step or flowchart step." & vbLf
+    s = s & vbLf
+    s = s & "# Strategy for resolving issues" & vbLf
+    s = s & "Resolve ambiguities and other issues by giving further observations below the table such that the paralegal does not struggle to pick the correct reference number for a given element." & vbLf
+    s = s & vbLf
+    s = s & "## Multiple reference signs for same element" & vbLf
+    s = s & "Check if you overlooked a qualifier that is actually part of the designated element. For example, if ""device"" has signs 10 and 20, maybe ""control device 10"" and ""interface device 20"" or ""first device 10"" and ""second device 20"" is the solution. If so, adapt the table." & vbLf
+    s = s & "Check if the reference sign depends on embodiment/context. If so give an observation identifying which of the multiple reference numbers should be used for the designated element in which claim and/or in which context." & vbLf
+    s = s & vbLf
+    s = s & "## Multiple elements having same reference sign" & vbLf
+    s = s & "Determine what terminology is used in the claims." & vbLf
+    s = s & "The designated element that is also in the claims is the designated element; any other designated elements are merely further observations." & vbLf
+    s = s & vbLf
+    s = s & "## Collective element versus individual element" & vbLf
+    s = s & "Sometimes an element, such as a collective or generic element has one reference sign, and components or specific embodiments of the collective element that share portions of the name have another sign. Example: ""bin 1"" versus ""dust bin 101"" and ""rubbish bin 102"". Alert the user to such cases with a further observation." & vbLf
+    s = s & vbLf
+    s = s & "## Not an ambiguity" & vbLf
+    s = s & "If an element is sometimes used with and sometimes without reference sign, this is not an ambiguity issue and there is nothing to observe. It is normal because when you work the claims do not yet have reference signs." & vbLf
+    s = s & vbLf
+    s = s & "# Output description" & vbLf
+    s = s & "Do not output anything in front of the table." & vbLf
+    s = s & "Output the table only." & vbLf
+    s = s & "After the table, you may output fan empty line and, in starting from the next line after the empty line, further observations." & vbLf
+    s = s & vbLf
+    s = s & "## Table" & vbLf
+    s = s & "The table must contain all reference signs for all structural elements, for all functional elements, for all flowchart steps and for all process steps and for all method steps designated with a reference sign" & vbLf
+    s = s & "anywhere in the description." & vbLf
+    s = s & vbLf
+    s = s & "Do not spend time sorting the table." & vbLf
+    s = s & vbLf
+    s = s & "The table starts with the reference sign, then a tabulator character,  then the designated element." & vbLf
+    s = s & vbLf
+    s = s & "Only put the designated element as such into the table. The designated element is not an entire phrase, but is a) only one word or b) a few words in case of a  compound noun, or c) qualifier + word or compound noun. For method steps, the designated element is only the verbal noun as such (e.g. ""obtaining"", not ""obtaining data from a remote server"")." & vbLf
+    s = s & vbLf
+    s = s & "## Further observations" & vbLf
+    s = s & "Write further observations below the table." & vbLf
+    s = s & "Write the further observations in the language which the patent description is written." & vbLf
+    s = s & "Be concise when writing further observations." & vbLf
+    s = s & "All further observations must be specific to issues you found in the given patent description that relate to reference sign usage" & vbLf
+    s = s & vbLf
+    s = s & "Include specific further observations that resolve actual naming ambiguities, synonym conflicts, context-dependent sign selection, or other difficulties the paralegal who only inserts reference sign should be aware of." & vbLf
+    s = s & vbLf
+    s = s & "For cases of multiple reference signs having the same or very similar designed elements, write a concise indication in which claim or in which context which of the ambiguous reference signs must be used, as opposed to other reference signs for the same or a similar designated element. Keep it very short (""use 20 in claims 4 and 5"", ""use 30 collectively for all devices"", ""use 31 specifically for the device when ..."", ""Use S210 for the step of obtaining a user input and S220 for the step of obtaining metadata from a remote server"", ""use 4 for the network interface of the server and 5 for the network interface of the client"" etc.)." & vbLf
+    s = s & vbLf
+    s = s & "Never explain how to use the table as such." & vbLf
+    s = s & vbLf
+    s = s & "Never give procedural, mapping workflow, or apparatus-vs-method warnings or other strategic attorney advice." & vbLf
+    s = s & vbLf
+    s = s & "Never give generic advice on how to insert reference signs unter European practice or on what to do with the table (the paralegal knows that)." & vbLf
+    s = s & vbLf
+    s = s & "Never mindlessly duplicate information that is directly available in the markdown table and can be retrieved therefrom without any difficulty or ambiguity." & vbLf
+    s = s & vbLf
+    s = s & "Do not write fluff or general wisdom about claim drafting strategy, reference sign mapping strategy, validity, scope, patent practice, or amendment strategies." & vbLf
+    s = s & vbLf
+    s = s & vbLf
+    s = s & "# Output example template" & vbLf
+    s = s & "```" & vbLf
+    s = s & "1" & vbTab & "vehicle" & vbLf
+    s = s & "5" & vbTab & "motor" & vbLf
+    s = s & "10" & vbTab & "control device" & vbLf
+    s = s & "20" & vbTab & "control device" & vbLf
+    s = s & "S20" & vbTab & "controlling" & vbLf
+    s = s & vbLf
+    s = s & "Use 10 for the control device in claims 1-4 and 9-10." & vbLf
+    s = s & "Use 20 for the control device in claims 5-8." & vbLf
+    s = s & "S20 is the step of controlling a steering angle of the vehicle." & vbLf
+    s = s & "```"
+
+    DEF_PromptPopulate = s
 End Function
 
 '=======================================================================
@@ -179,25 +271,73 @@ Public Sub LoadPatentToolsSettings()
     gModelName  = IIf(Len(s) > 0, s, DEF_ModelName)
 
     s = GetSetting(APP_NAME, SECTION_NAME, "Temperature", "")
-    gTemperature = IIf(Len(s) > 0, ParseDotDouble(s), DEF_Temperature)
+    If Len(s) > 0 Then
+        gTemperature = ParseDotDouble(s)
+    Else
+        gTemperature = DEF_Temperature
+    End If
 
     s = GetSetting(APP_NAME, SECTION_NAME, "TimeoutSec", "")
-    gTimeoutSec = IIf(Len(s) > 0, CLng(s), DEF_TimeoutSec)
+    If Len(s) > 0 Then
+        gTimeoutSec = CLng(s)
+    Else
+        gTimeoutSec = DEF_TimeoutSec
+    End If
+
+    s = GetSetting(APP_NAME, SECTION_NAME, "TempPopulate", "")
+    If Len(s) > 0 Then
+        gTempPopulate = ParseDotDouble(s)
+    Else
+        gTempPopulate = DEF_TempPopulate
+    End If
+
+    s = GetSetting(APP_NAME, SECTION_NAME, "TimeoutSecPopulate", "")
+    If Len(s) > 0 Then
+        gTimeoutSecPopulate = CLng(s)
+    Else
+        gTimeoutSecPopulate = DEF_TimeoutSecPopulate
+    End If
+
+    s = GetSetting(APP_NAME, SECTION_NAME, "ThinkPopulation", "")
+    If Len(s) > 0 Then
+        gThinkPopulation = CBool(Val(s))
+    Else
+        gThinkPopulation = DEF_ThinkPopulation
+    End If
 
     s = GetSetting(APP_NAME, SECTION_NAME, "MaxTokens", "")
-    gMaxTokens  = IIf(Len(s) > 0, CLng(s), DEF_MaxTokens)
+    If Len(s) > 0 Then
+        gMaxTokens = CLng(s)
+    Else
+        gMaxTokens = DEF_MaxTokens
+    End If
 
     s = GetSetting(APP_NAME, SECTION_NAME, "Thinking", "")
-    gThinking   = IIf(Len(s) > 0, CBool(Val(s)), DEF_Thinking)
+    If Len(s) > 0 Then
+        gThinking = CBool(Val(s))
+    Else
+        gThinking = DEF_Thinking
+    End If
 
     s = GetSetting(APP_NAME, SECTION_NAME, "Debug", "")
-    gDebug      = IIf(Len(s) > 0, CBool(Val(s)), DEF_Debug)
+    If Len(s) > 0 Then
+        gDebug = CBool(Val(s))
+    Else
+        gDebug = DEF_Debug
+    End If
 
     s = GetSetting(APP_NAME, SECTION_NAME, "PromptInsert", "")
     If Len(s) > 0 Then
         gPromptInsert = DecodeMultiLineSetting(s)
     Else
         gPromptInsert = DEF_PromptInsert()
+    End If
+
+    s = GetSetting(APP_NAME, SECTION_NAME, "PromptPopulate", "")
+    If Len(s) > 0 Then
+        gPromptPopulate = DecodeMultiLineSetting(s)
+    Else
+        gPromptPopulate = DEF_PromptPopulate()
     End If
 
     ' If the registry is completely empty (first run), write defaults so future loads persist.
@@ -213,10 +353,14 @@ Public Sub ResetSettingsToDefaults()
     gModelName  = DEF_ModelName
     gTemperature = DEF_Temperature
     gTimeoutSec = DEF_TimeoutSec
+    gTempPopulate = DEF_TempPopulate
+    gTimeoutSecPopulate = DEF_TimeoutSecPopulate
+    gThinkPopulation = DEF_ThinkPopulation
     gMaxTokens  = DEF_MaxTokens
     gThinking   = DEF_Thinking
     gDebug      = DEF_Debug
-    gPromptInsert = DEF_PromptInsert()
+    gPromptInsert   = DEF_PromptInsert()
+    gPromptPopulate = DEF_PromptPopulate()
 
     SavePatentToolsSettings
 End Sub
@@ -227,10 +371,14 @@ Public Sub SavePatentToolsSettings()
     SaveSetting APP_NAME, SECTION_NAME, "ModelName", gModelName
     SaveSetting APP_NAME, SECTION_NAME, "Temperature", FormatDotDouble(gTemperature)
     SaveSetting APP_NAME, SECTION_NAME, "TimeoutSec", CStr(gTimeoutSec)
+    SaveSetting APP_NAME, SECTION_NAME, "TempPopulate", FormatDotDouble(gTempPopulate)
+    SaveSetting APP_NAME, SECTION_NAME, "TimeoutSecPopulate", CStr(gTimeoutSecPopulate)
+    SaveSetting APP_NAME, SECTION_NAME, "ThinkPopulation", IIf(gThinkPopulation, "1", "0")
     SaveSetting APP_NAME, SECTION_NAME, "MaxTokens", CStr(gMaxTokens)
     SaveSetting APP_NAME, SECTION_NAME, "Thinking", IIf(gThinking, "1", "0")
     SaveSetting APP_NAME, SECTION_NAME, "Debug", IIf(gDebug, "1", "0")
-    SaveSetting APP_NAME, SECTION_NAME, "PromptInsert", EncodeMultiLineSetting(gPromptInsert)
+    SaveSetting APP_NAME, SECTION_NAME, "PromptInsert",   EncodeMultiLineSetting(gPromptInsert)
+    SaveSetting APP_NAME, SECTION_NAME, "PromptPopulate", EncodeMultiLineSetting(gPromptPopulate)
 End Sub
 
 Public Function NormalizeApiBaseUrl(ByVal s As String) As String

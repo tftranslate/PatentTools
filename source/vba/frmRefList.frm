@@ -16,6 +16,7 @@ Attribute VB_Exposed = False
 
 
 
+
 Option Explicit
 
 Public Cancelled As Boolean
@@ -31,7 +32,22 @@ Private Sub cmdClear_Click()
 End Sub
 
 Private Sub cmdPopulate_Click()
+    Dim refTable As String
 
+    ' Call the model-assisted population routine.
+    refTable = Populate_Reference_Sign_Table()
+
+    ' Persist the result document-wide (per-document custom property).
+    On Error Resume Next
+    ActiveDocument.CustomDocumentProperties("PatentToolsRefList").Value = refTable
+    If Err.Number <> 0 Then
+        ActiveDocument.CustomDocumentProperties.Add Name:="PatentToolsRefList", _
+            LinkToContent:=False, Type:=msoPropertyTypeString, Value:=refTable
+    End If
+    On Error GoTo 0
+
+    ' Update the text box so the user sees the freshly populated content.
+    Me.txtRefList.Text = refTable
 End Sub
 
 Private Sub UserForm_Initialize()
