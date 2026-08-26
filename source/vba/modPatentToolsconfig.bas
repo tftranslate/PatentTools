@@ -128,9 +128,10 @@ Public Function DEF_PromptPopulate	() As String
     s = s & vbLf
     s = s & "Do not spend time sorting the table." & vbLf
     s = s & vbLf
-    s = s & "The table starts with the reference sign, then a tabulator character,  then the designated element." & vbLf
+	s = s & "Do not output a markdown table but just a plain text table formatted as follows:" & vbLf
+    s = s & "Each table line starts with the reference sign, then a tabulator character, then the designated element." & vbLf
     s = s & vbLf
-    s = s & "Only put the designated element as such into the table. The designated element is not an entire phrase, but is a) only one word or b) a few words in case of a  compound noun, or c) qualifier + word or compound noun. For method steps, the designated element is only the verbal noun as such (e.g. ""obtaining"", not ""obtaining data from a remote server"")." & vbLf
+    s = s & "Only put the designated element as such into the table lines. The designated element is not an entire phrase, but is a) only one word or b) a few words in case of a  compound noun, or c) qualifier + word or compound noun. For method steps, the designated element is only the verbal noun as such (e.g. ""obtaining"", ad NOT ""obtaining data from a remote server"")." & vbLf
     s = s & vbLf
     s = s & "## Further observations" & vbLf
     s = s & "Write further observations below the table." & vbLf

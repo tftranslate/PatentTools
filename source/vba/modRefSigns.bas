@@ -4,8 +4,8 @@ Option Explicit
 ' Delimiters used in the hardcoded user message.
 Private Const DELIM_REFS_BEGIN  As String = "===== BEGIN REFERENCE SIGN LIST ====="
 Private Const DELIM_REFS_END    As String = "===== END REFERENCE SIGN LIST ====="
-Private Const DELIM_PARA_BEGIN  As String = "===== BEGIN PARAGRAPHS "
-Private Const DELIM_PARA_END    As String = "===== END PARAGRAPHS "
+Private Const DELIM_PARA_BEGIN  As String = "===== BEGIN PARAGRAPH NO. "
+Private Const DELIM_PARA_END    As String = "===== END PARAGRAPH NO. "
 Private Const DELIM_SUFFIX      As String = " ====="
 
 
@@ -141,6 +141,9 @@ Public Sub Insert_Reference_Signs()
             ToDisplayText(userMessage), True) Then
             Exit Sub
         End If
+		If Not ShowLargeTextDialog ("Raw json object sent to model", requestJson, True) Then
+		   Exit Sub
+		End if
     End If
     
     On Error GoTo FailHandler
@@ -167,6 +170,12 @@ Public Sub Insert_Reference_Signs()
         MsgBox "Model output was truncated (finish_reason = length). Increase max_tokens and try again.", vbCritical
         GoTo CleanExit
     End If
+	
+	if gDebug Then
+		If Not ShowLargeTextDialog ("Raw model output", assistantText, True) Then
+		   Exit Sub
+		End if
+	end if
     
     assistantText = CleanupModelOutput(assistantText)
     
@@ -433,13 +442,11 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
     Dim dbgOriginalToken As String
     Dim dbgModelToken As String
     Dim dbgCombined As String
+	Dim strDebug3 as String
+	Dim strDebug4 as String
     
-    modelAnalysisText = NormalizeAnalysisText(modelText)
-    
-    If gDebug Then
-        MsgBox modelAnalysisText, vbCritical
-    End If
-    
+    modelAnalysisText = NormalizeAnalysisText(modelText) 
+   
     Set oWordsPos = ExtractWordsOnly(originalText)
     Set oWordsCmp = oWordsPos
     Set mWordsCmp = ExtractWordsOnly(modelAnalysisText)
@@ -499,7 +506,7 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
             Next skip
             
             If gDebug Then
-              MsgBox "DEBUG 3 - Direct token mismatch, trying merge" & vbCrLf & _
+              strDebug3 =  "DEBUG 3 - Direct token mismatch, trying merge" & vbCrLf & _
                 "iO = " & iO & ", iM = " & iM & vbCrLf & _
                 "Original token = [" & dbgOriginalToken & "]" & vbCrLf & _
                 "Original canonical = [" & canonO & "]" & vbCrLf & _
@@ -508,7 +515,7 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
                 "Original code points = " & CharCodes(dbgOriginalToken) & vbCrLf & _
                 "Model code points = " & CharCodes(dbgModelToken) & vbCrLf & _
                 "Original analysis = " & CharCodes(CStr(oWordsCmp(iO)(0))) & vbCrLf & _
-                "Model analysis = " & CharCodes(CStr(mWordsCmp(iM)(0))) & vbCrLf, vbExclamation
+                "Model analysis = " & CharCodes(CStr(mWordsCmp(iM)(0))) & vbCrLf
             End If
             
             combinedM = canonM
@@ -544,15 +551,36 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
             Next j
             
             If gDebug Then
-              MsgBox "DEBUG 4 - Merge failed" & vbCrLf & _
+              strDebug4 = "DEBUG 4 - Merge failed" & vbCrLf & _
                 "Could not match original token after trying model-token merge." & vbCrLf & vbCrLf & _
                 "iO = " & iO & ", iM = " & iM & vbCrLf & _
                 "Original token = [" & CStr(oWordsCmp(iO)(0)) & "]" & vbCrLf & _
                 "Original canonical = [" & canonO & "]" & vbCrLf & _
                 "Tried model tokens = " & dbgCombined & vbCrLf & _
-                "Final combined canonical = [" & combinedM & "]", vbCritical
+                "Final combined canonical = [" & combinedM & "]"
             End If
+
+            ' Bi-directional skip ahead: tolerate a single misspelled or hallucinated token
+            Dim skipAhead As Long
+            For skipAhead = 1 To 2
+                If iO + skipAhead > oWordsPos.Count Or iM + skipAhead > mWordsCmp.Count Then Exit For
+                
+                If CanonicalWordForCompare(CStr(oWordsPos(iO + skipAhead)(0))) = _
+                   CanonicalWordForCompare(CStr(mWordsCmp(iM + skipAhead)(0))) Then
+                    
+                    ' Match found after skipping tokens on both sides.
+                    iO = iO + skipAhead + 1
+                    iM = iM + skipAhead + 1
+                    GoTo NextLoop
+                End If
+            Next skipAhead
             
+			If gDebug Then
+			  MsgBox strDebug3, vbCritical
+			  MsgBox strDebug4, vbCritical
+              MsgBox "DEBUG 5 - Bidirectional lookahead failed", vbCritical
+            End If
+			
             InsertReferenceSignsOnly = False
             Exit Function
         End If
@@ -947,6 +975,9 @@ Private Function ParseParagraphsFromJsonObject(ByVal jsonText As String) As Coll
     Dim arrEnd As Long
     Dim arrText As String
     
+	if gDebug Then
+	endif
+	
     jsonText = CleanupModelOutput(jsonText)
     
     pKey = InStr(1, jsonText, """paragraphs""", vbTextCompare)

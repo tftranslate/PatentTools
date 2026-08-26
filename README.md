@@ -90,6 +90,8 @@ This add-in has been validated with:
 
 - **Model:** gemma-4 31b, qwen-3.8 27b, and gpt-oss-120b
 
+  Tests with gemma-4 26b-a4b were promising and it might work for you, but it is not as stable as gemma-4 31b.
+  
   Note: For gemma and qwen, turn ```thinking```off for claim insertion, but on for population. For gpt-oss, turn ```thinking```off for both.
 - **Mode:** non-thinking mode / low reasoning effort
 - **Endpoint type:** OpenAI-compatible chat completions API
@@ -201,6 +203,10 @@ Check:
 ### Error message "Done, but these paragraphs were skipped because the word sequence could not be aligned safely"
 
 This error message occurs when the model outputs extra words or otherwise reorders the claim wording. Consider lowering temperature, using a better model, or add even more explicit instructions to the prompt. The Google Gemma-4 31 b dense model is a good reference point. If you keep seeing this issue with a reasonable precise model, contact the developer.
+
+### During processing I see "Model is thinking", but I disabled "Thinking" in the settings
+
+This should not happen with the validated Gemma and Qwen models. The reason is probably that you are using a thinking-only model or a model that dues not support disabling thinking using ```chat_template_kwargs```. Note that when you disable thinking in the settings, PatentTools will also pass ```reasoning_effort: low```. Some models, such as gpt-oss, will be cause by this to "think less" when thinking is disabled in settings, and to "think more" when thinking is enabled. Compare the time required for thinking between both scenarios to see whether ticking and unticking "thinking" has this effect on your model.
 
 ### Repository contents
 
