@@ -25,7 +25,7 @@ Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
 ' Tool release version.
-Public Const TOOL_VERSION As String = "0.2.0"
+Public Const TOOL_VERSION As String = "0.2.0-beta"
 
 ' Single source of truth: factory-default values for all globally persisted settings.
 Private Const DEF_ApiUrl      As String    = "http://localhost:11434"
