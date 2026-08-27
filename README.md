@@ -1,4 +1,4 @@
-# Patent Tools for Microsoft Word v. 0.2.0
+# Patent Tools for Microsoft Word v. 0.2.1
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
@@ -81,6 +81,8 @@ The settings dialog lets the user configure the model connection and request beh
 
 - **Fetch model list** — verifies the connection to the model and automatically discovers which models the API offers.
 
+- **Try native llama.cpp call path** — experimental feature. This gives better progress report and enables control of thinking model when it fails in OpenAI compatible mode (e.g. for gemma-4 e4b). Should work for llama.cpp as well as LM Studio. Disable when your backend is VLLM.
+
 - **Model name** — offers a list of models offer by the API, choose the one you want to use.
 
 - **Temperature** — floating-point value using a dot, for reference sign insertion use a low one such as `0.2`. Accepts digits plus one dot.
@@ -93,7 +95,7 @@ The settings dialog lets the user configure the model connection and request beh
 
 - **Max. Tokens** — integer token limit. Upper limit is your model's context window size.
 
-The URL is normalized before use. If the user enters a URL ending in `/v1` or `/v1/chat/completions`, that suffix is removed so the add-in can append the correct endpoint path itself. If llama.cpp is discovered, a native ```completions`` path is used that offers more feedback while the model is working.
+The URL is normalized before use. If the user enters a URL ending in `/v1` or `/v1/chat/completions`, that suffix is removed so the add-in can append the correct endpoint path itself. If llama.cpp call path is elected and llama.cpp is discovered, a native `completions` path is used that offers more feedback while the model is working and gives better control over thinking mode.
 
 ### Prompt settings
 
@@ -117,19 +119,28 @@ Recommended safe usage:
 
 ## Validated model setup
 
-This add-in has been validated with:
+This add-in has been validated with and is recommended for use with:
 
 | Model              | thinking for insertion | thinking for population | remarks                                                      |
 | ------------------ | ---------------------- | ----------------------- | ------------------------------------------------------------ |
 | gemma-4 31b        | no                     | yes or no               | thinking on for population improves additional observations  |
-| gemma-4 26b-a4b    | no                     | yes or no               | not as stable as gemma-4 31b, but still useful               |
-| gemma-4 12b        | no                     | yes or no               | might miss some signs, but still useful                      |
-| qwen-3.8 27b       | no                     | no                      | think on for population makes things a bit better but very slow |
-| qwen-3.5 122b-a10b | no                     | no                      | performs well even in non-thinking mode                      |
-| qwen-3.6-35b-a3b   | --                     | --                      | Results were unsatisfactory. Population works, but insertion is not reliable. |
-| gpt-oss-120b       | no                     | no                      | The model always thinks, but "thinking off" sets a low reasoning effort, which is fully sufficient. |
+| gemma-4 26b-a4b    | no                     | yes or no               | not as stable as gemma-4 31b, but still very useful          |
+| gemma-4 12b        | no                     | yes or no               | might miss a few signs to insert, but stl useful             |
+| gpt-oss-120b       | no                     | no                      | The model always thinks, but "thinking off" sets a low reasoning effort, which is all it takes and is sufficiently fast. Do not enable thinking (medium reasoning effort), it will overthink. |
+| qwen-3.8 27b       | no                     | no                      | Thinking on for population makes observations a bit better but very slow due to overthinking. |
+| qwen-3.5 122b-a10b | no                     | no                      | Performs extremely well even in non-thinking mode.           |
 
-As a rule of thumb, try in non-thinking mode first. Only activate thinking if you need it. Thinking does not necessarily increase accuracy for this type of task. They key model quality is precise reproduction of the claims. Dense model perform better here than equally sized MoE models. 
+Models that can**not** be recommended unconditionally include:
+
+| model            | remarks                                                      |
+| ---------------- | ------------------------------------------------------------ |
+| gemma-4 e4b      | Thinking mode control works only in the native llama.cpp call path due to a known model bug. In the standard OpenAI call path, it always thinks and slows down. Only use with llama.cpp calling path. Do not expect wonders from this model, insertions may be incomplete, further observations in the reference sign list may not be very helpful. |
+| qwen-3.6-35b-a3b | Results were unsatisfactory. Population works, but insertion is not reliable. Maybe some prompt tweaking could help. But for this specific task, there are better options. |
+| lfm2.5-2.5b      | It is impossible to turn thinking off for this model and on any hardware on which you would run such a small model, this means it takes far too long to ge any job done. |
+
+
+
+As a rule of thumb, try in non-thinking mode first. Test with the insertion feature as it is much more demanding than the population feature. Only activate thinking if you need it. Thinking does not necessarily increase accuracy for this type of task. The key model quality is precise reproduction of the claims. Dense model perform better here than equally sized MoE models. 
 
 All models were tested at NVFP4/MXFP4 quantization, with the exception of Gemma-4 12b, for which an integer Q4 quant was used.
 
@@ -189,6 +200,10 @@ This should not happen with the validated Gemma and Qwen models. The reason is p
 ### Messages about truncated JSON or non-readable JSON when trying to insert reference signs
 
 If this occurs only intermittently, check your network connectivity and/or increase timeout values. If it always happens, switch to a model from the list of validated models above.
+
+### The model answer is much longer then the reference sign list / than my set of patent claims
+
+The model answer may comprise reasoning traces which Patent Tools will silently filter out. Try disabling Thinking in the settings and/or select the native llama.cpp calling path (if on llama.cpp).
 
 ### Repository contents
 

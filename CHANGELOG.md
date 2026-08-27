@@ -4,6 +4,22 @@ All notable changes to PatentTools for Microsoft Word are documented in this fil
 
 The project uses semantic-style versioning while it remains in pre-1.0 development.
 
+## [0.2.1] - 2026-08-28
+
+### Added
+
+- Postprocessing of the auto-populated reference sign table: alphanumeric sorting and pretty-printing with tabs
+
+### Changed
+
+- The llama.cpp native calling path is now user-configurable and is off by default because it may create various problems for various newly released models and is not available on LM Studio and Ollama.
+- Implemented reasoning mode control for the native llama.cpp calling path. Actually this is the only way to get gemma-4 e4b into non-reasoning mode. There is a known bug in gemma-4 e4b that keeps reasoning even when told not to via the OpenAPI-compatible API.
+
+### Fixed
+
+- Fixed some serious errors in the population prompt generating code, a wrong schema was confusing smaller models.
+- Comprehensive fixes to the native llama.cpp calling path: More robust filtering out of thinking traces, correct selection of thinking vs. non-thinking mode.
+
 ## [0.2.0] - 2026-08-27
 ### Added
 - Populate list of reference signs based on description. Go to "Edit reference sign list", click on "Populate".

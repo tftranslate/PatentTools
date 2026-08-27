@@ -1571,7 +1571,8 @@ Public Function PT_ApplyTemplate(ByVal baseUrl As String, _
                                  ByVal apiKey As String, _
                                  ByVal timeoutSec As Long, _
                                  ByRef outPrompt As String, _
-                                 ByRef outError As String) As Boolean
+                                 ByRef outError As String, _
+                                 Optional ByVal enableThinking As Boolean = False) As Boolean
 
     Dim body As String
     Dim requestBody As String
@@ -1579,7 +1580,13 @@ Public Function PT_ApplyTemplate(ByVal baseUrl As String, _
     Application.StatusBar = "Applying the chat template on the server ..."
     DoEvents
 
-    requestBody = "{""messages"":" & messagesArrayJson & "}"
+    ' Pass enable_thinking via chat_template_kwargs to control Gemma 4 thinking mode
+    ' CRITICAL: The template is rendered HERE, not in /completion
+    If enableThinking Then
+        requestBody = "{""messages"":" & messagesArrayJson & ",""chat_template_kwargs"":{""enable_thinking"":true}}"
+    Else
+        requestBody = "{""messages"":" & messagesArrayJson & ",""chat_template_kwargs"":{""enable_thinking"":false}}"
+    End If
 
     If Not PT_HttpJson("POST", baseUrl & "/apply-template", requestBody, _
                        apiKey, timeoutSec, body, outError) Then

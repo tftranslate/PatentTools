@@ -18,6 +18,7 @@ Public gTempPopulate As Double
 Public gTimeoutSecPopulate As Long
 Public gThinkPopulation As Boolean
 Public gDebug As Boolean
+Public gLlamaNative As Boolean
 Public gPromptInsert   As String
 Public gPromptPopulate As String
 
@@ -25,7 +26,7 @@ Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
 ' Tool release version.
-Public Const TOOL_VERSION As String = "0.2.0"
+Public Const TOOL_VERSION As String = "0.2.1"
 
 ' Single source of truth: factory-default values for all globally persisted settings.
 Private Const DEF_ApiUrl      As String    = "http://localhost:11434"
@@ -39,6 +40,7 @@ Private Const DEF_TempPopulate As Double     = 0.6
 Private Const DEF_TimeoutSecPopulate As Long = 900  ' Increased for population (was 600)
 Private Const DEF_ThinkPopulation As Boolean = True
 Private Const DEF_Debug       As Boolean   = False
+Private Const DEF_LlamaNative As Boolean   = False  ' Default to OpenAI-compatible path (native requires server-side thinking config)
 ' DEF_PromptInsert is not a Const: the factory system prompt is a multi-line text and
 ' exceeds what a single Const statement can hold within VBA's line-continuation limit.
 ' Use DEF_PromptInsert() wherever the other DEF_* constants are used.
@@ -60,7 +62,7 @@ Public Function DEF_PromptInsert() As String
     s = s & "You are editing patent claims." & vbLf
     s = s & "Your task is to reproduce each paragraph exactly, preserving wording, numbering, punctuation, capitalization, and spacing as much as possible." & vbLf
     s = s & "Only insert reference signs in parentheses after the corresponding claim features." & vbLf
-    s = s & "If the same term has multiple reference signs, add the first/lowest reference sign if the term is in singular, and add all reference signs as a comma-separated list inside parentehses if the term is in plural." & vbLf
+    s = s & "If the same term has multiple reference signs, add the first/lowest reference sign if the term is in singular, and add all reference signs as a comma-separated list inside parentheses if the term is in plural." & vbLf
     s = s & "The reference sign table may comprise further prompts for you to consider." & vbLf
     s = s & "Do not explain anything." & vbLf
     s = s & "Do not add commentary." & vbLf
@@ -121,7 +123,7 @@ Public Function DEF_PromptPopulate	() As String
     s = s & "# Output description" & vbLf
     s = s & "Do not output anything in front of the table." & vbLf
     s = s & "Output the table only." & vbLf
-    s = s & "After the table, you may output fan empty line and, in starting from the next line after the empty line, further observations." & vbLf
+    s = s & "After the table, you may output an empty line and, in starting from the next line after the empty line, further observations." & vbLf
     s = s & vbLf
     s = s & "## Table" & vbLf
     s = s & "The table must contain all reference signs that occur in the description. I.e., we want all reference signs for all structural elements, for all functional elements, for all flowchart steps and for all process steps and for all method steps designated with a reference sign anywhere in the description." & vbLf
@@ -131,7 +133,7 @@ Public Function DEF_PromptPopulate	() As String
 	s = s & "Do not output a markdown table but just a plain text table formatted as follows:" & vbLf
     s = s & "Each table line starts with the reference sign, then a tabulator character, then the designated element." & vbLf
     s = s & vbLf
-    s = s & "Only put the designated element as such into the table lines. The designated element is not an entire phrase, but is a) only one word or b) a few words in case of a  compound noun, or c) qualifier + word or compound noun. For method steps, the designated element is only the verbal noun as such (e.g. ""obtaining"", ad NOT ""obtaining data from a remote server"")." & vbLf
+    s = s & "Only put the designated element as such into the table lines. The designated element is not an entire phrase, but is a) only one word or b) a few words in case of a  compound noun, or c) qualifier + word or compound noun. For method steps, the designated element is only the verbal noun as such (e.g. ""obtaining"", and NOT ""obtaining data from a remote server"")." & vbLf
     s = s & vbLf
     s = s & "## Further observations" & vbLf
     s = s & "Write further observations below the table." & vbLf
@@ -139,15 +141,15 @@ Public Function DEF_PromptPopulate	() As String
     s = s & "Be concise when writing further observations." & vbLf
     s = s & "All further observations must be specific to issues you found in the given patent description that relate to reference sign usage" & vbLf
     s = s & vbLf
-    s = s & "Include specific further observations that resolve actual naming ambiguities, synonym conflicts, context-dependent sign selection, or other difficulties the paralegal who only inserts reference sign should be aware of." & vbLf
+    s = s & "Include specific further observations that resolve actual naming ambiguities, synonym conflicts, context-dependent sign selection, or other difficulties the paralegal who only inserts reference signs should be aware of." & vbLf
     s = s & vbLf
-    s = s & "For cases of multiple reference signs having the same or very similar designed elements, write a concise indication in which claim or in which context which of the ambiguous reference signs must be used, as opposed to other reference signs for the same or a similar designated element. Keep it very short (""use 20 in claims 4 and 5"", ""use 30 collectively for all devices"", ""use 31 specifically for the device when ..."", ""Use S210 for the step of obtaining a user input and S220 for the step of obtaining metadata from a remote server"", ""use 4 for the network interface of the server and 5 for the network interface of the client"" etc.)." & vbLf
+    s = s & "For cases of multiple reference signs having the same or very similar designated elements, write a concise indication in which claim or in which context which of the ambiguous reference signs must be used, as opposed to other reference signs for the same or a similar designated element. Keep it very short (""use 20 in claims 4 and 5"", ""use 30 collectively for all devices"", ""use 31 specifically for the device when ..."", ""Use S210 for the step of obtaining a user input and S220 for the step of obtaining metadata from a remote server"", ""use 4 for the network interface of the server and 5 for the network interface of the client"" etc.)." & vbLf
     s = s & vbLf
     s = s & "Never explain how to use the table as such." & vbLf
     s = s & vbLf
     s = s & "Never give procedural, mapping workflow, or apparatus-vs-method warnings or other strategic attorney advice." & vbLf
     s = s & vbLf
-    s = s & "Never give generic advice on how to insert reference signs unter European practice or on what to do with the table (the paralegal knows that)." & vbLf
+    s = s & "Never give generic advice on how to insert reference signs under European practice or on what to do with the table (the paralegal knows that)." & vbLf
     s = s & vbLf
     s = s & "Never mindlessly duplicate information that is directly available in the markdown table and can be retrieved therefrom without any difficulty or ambiguity." & vbLf
     s = s & vbLf
@@ -155,7 +157,6 @@ Public Function DEF_PromptPopulate	() As String
     s = s & vbLf
     s = s & vbLf
     s = s & "# Output example template" & vbLf
-    s = s & "```" & vbLf
     s = s & "1" & vbTab & "vehicle" & vbLf
     s = s & "5" & vbTab & "motor" & vbLf
     s = s & "10" & vbTab & "control device" & vbLf
@@ -164,8 +165,7 @@ Public Function DEF_PromptPopulate	() As String
     s = s & vbLf
     s = s & "Use 10 for the control device in claims 1-4 and 9-10." & vbLf
     s = s & "Use 20 for the control device in claims 5-8." & vbLf
-    s = s & "S20 is the step of controlling a steering angle of the vehicle." & vbLf
-    s = s & "```"
+    s = s & "S20 is the step of controlling a steering angle of the vehicle."
 
     DEF_PromptPopulate = s
 End Function
@@ -282,6 +282,7 @@ Public Function VariablesToJsonObjectString() As String
     
     ' Other settings
     json = json & "    " & Chr$(34) & "Debug" & Chr$(34) & ": " & IIf(gDebug, "true", "false") & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "LlamaNative" & Chr$(34) & ": " & IIf(gLlamaNative, "true", "false") & "," & vbCrLf
     
     ' Prompt strings (these contain the heavy lifting for special characters)
     json = json & "    " & Chr$(34) & "PromptInsert" & Chr$(34) & ": " & Chr$(34) & JsonEscape(gPromptInsert) & Chr$(34) & "," & vbCrLf
@@ -428,6 +429,7 @@ Public Function LoadVariablesFromJsonObjectString(jsonText As String, _
     Dim orig_TimeoutSecPopulate As Long
     Dim orig_ThinkPopulation As Boolean
     Dim orig_Debug As Boolean
+    Dim orig_LlamaNative As Boolean
     Dim orig_PromptInsert As String
     Dim orig_PromptPopulate As String
     
@@ -443,6 +445,7 @@ Public Function LoadVariablesFromJsonObjectString(jsonText As String, _
     orig_TimeoutSecPopulate = gTimeoutSecPopulate
     orig_ThinkPopulation = gThinkPopulation
     orig_Debug = gDebug
+    orig_LlamaNative = gLlamaNative
     orig_PromptInsert = gPromptInsert
     orig_PromptPopulate = gPromptPopulate
     
@@ -488,6 +491,7 @@ Public Function LoadVariablesFromJsonObjectString(jsonText As String, _
     gTimeoutSecPopulate = CLng(ExtractNumberKeyLong(scanArea, "TimeoutSecPopulate"))
     gThinkPopulation = ExtractBooleanKey(scanArea, "ThinkPopulation")
     gDebug = ExtractBooleanKey(scanArea, "Debug")
+    gLlamaNative = ExtractBooleanKey(scanArea, "LlamaNative")
     gPromptInsert = ExtractStringKey(scanArea, "PromptInsert")
     gPromptPopulate = ExtractStringKey(scanArea, "PromptPopulate")
     
@@ -508,6 +512,7 @@ LoadFailed:
     gTimeoutSecPopulate = orig_TimeoutSecPopulate
     gThinkPopulation = orig_ThinkPopulation
     gDebug = orig_Debug
+    gLlamaNative = orig_LlamaNative
     gPromptInsert = orig_PromptInsert
     gPromptPopulate = orig_PromptPopulate
     
@@ -747,6 +752,7 @@ Private Sub LoadDefaultsToVariables()
     gTimeoutSecPopulate = DEF_TimeoutSecPopulate
     gThinkPopulation  = DEF_ThinkPopulation
     gDebug            = DEF_Debug
+    gLlamaNative      = DEF_LlamaNative
     gPromptInsert     = DEF_PromptInsert()
     gPromptPopulate   = DEF_PromptPopulate()
 End Sub

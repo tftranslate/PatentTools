@@ -16,6 +16,8 @@ Attribute VB_Exposed = False
 
 
 
+
+
 Option Explicit
 
 Private mCancelled As Boolean
@@ -48,7 +50,7 @@ Private Function SaveJsonToFile(ByVal jsonContent As String) As Boolean
         
         ' Find and select the Plain Text (*.txt) filter in the system defaults
         ' This ensures proper text encoding and file type association
-        For i = 1 To .Filters.Count
+        For i = 1 To .Filters.count
             If InStr(.Filters(i).Description, "Plain Text") > 0 Or _
                InStr(.Filters(i).Extensions, ".txt") > 0 Then
                 .FilterIndex = i
@@ -182,6 +184,19 @@ Private Sub btnCancel_Click()
 End Sub
 
 
+Private Sub CheckBox1_Click()
+
+End Sub
+
+Private Sub chkLlama_Click()
+    ' Thinking checkboxes are now enabled for both native and OpenAI-compatible routes
+    ' Since PT_ApplyTemplate() now passes enable_thinking via chat_template_kwargs
+    Dim usedNow As Boolean
+    usedNow = (chkLlama.Value = True)
+    
+    ' Both checkboxes remain enabled - user can control thinking mode regardless of route
+End Sub
+
 Private Sub UserForm_Activate()
     ' Reset status label whenever the form is shown, so stale connection messages don't persist.
     lblStatus.Caption = ""
@@ -201,6 +216,7 @@ Private Sub AcceptAndSaveChangedSettings()
     gMaxTokens = CLng(Trim$(txtMaxTokens.Text))
     gThinking = chkThinking.Value
     gDebug = chkDebug.Value
+    gLlamaNative = chkLlama.Value
  
     ' System prompts: stored with vbLf line breaks.
     gPromptInsert = FromDisplayText(txtPromptInsert.Text)
@@ -530,6 +546,9 @@ Private Sub RefreshUIControls()
     txtMaxTokens.Text = CStr(gMaxTokens)
     chkThinking.Value = gThinking
     chkDebug.Value = gDebug
+    chkLlama.Value = gLlamaNative
+    
+    ' Thinking checkboxes always enabled - native route now supports enable_thinking control
     
     ' System prompt editor: multi-line and scrollable, showing the persisted prompt.
     With txtPromptInsert
@@ -597,13 +616,13 @@ Private Sub FetchModelsFromAPI()
         If selectedIndex >= 0 Then
             cbbModel.ListIndex = selectedIndex
             lblStatus.ForeColor = RGB(0, 128, 0)
-            lblStatus.Caption = "Connection successful. Selected model '" & persistedModel & "'." 
+            lblStatus.Caption = "Connection successful. Selected model '" & persistedModel & "'."
         Else
             cbbModel.ListIndex = 0
             lblStatus.ForeColor = RGB(0, 128, 0)
             If Len(persistedModel) > 0 Then
                 lblStatus.Caption = "Connection successful. Persisted model '" & persistedModel & _
-                                   "' not found on server; first model selected." 
+                                   "' not found on server; first model selected."
             Else
                 lblStatus.Caption = "Connection successful."
             End If

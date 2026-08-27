@@ -457,23 +457,60 @@ Public Function CleanupModelOutput(ByVal s As String) As String
     CleanupModelOutput = Trim$(s)
 End Function
 
-' Removes <think> ... </think> blocks, including an unterminated leading one.
+' Removes <think> ... </think> as well as <|channel>thought blocks, including an unterminated trailing one,
+' or a stray closing tag that implies preceding reasoning content.
 Public Function StripThinkBlocks(ByVal s As String) As String
     Dim pOpen As Long
     Dim pClose As Long
 
     Do
         pOpen = InStr(1, s, "<think>", vbTextCompare)
-        If pOpen = 0 Then Exit Do
+        If pOpen = 0 Then
+            ' No opening tag — check for a stray closing tag only.
+            ' If found, everything before it (including the tag) is assumed to be reasoning.
+            pClose = InStr(1, s, "</think>", vbTextCompare)
+            If pClose > 0 Then
+                s = Mid$(s, pClose + 8)
+                Exit Do
+            End If
+            ' Neither tag present — nothing to strip.
+            Exit Do
+        End If
 
         pClose = InStr(pOpen, s, "</think>", vbTextCompare)
         If pClose = 0 Then
-            ' No closing tag: everything from the tag on is reasoning.
+            ' No closing tag: everything from the open tag on is reasoning.
             s = Left$(s, pOpen - 1)
             Exit Do
         End If
 
+        ' Both tags present: remove the entire <think>...</think> block.
         s = Left$(s, pOpen - 1) & Mid$(s, pClose + 8)
+    Loop
+	
+	Do
+        pOpen = InStr(1, s, "<|channel>thought", vbTextCompare)
+        If pOpen = 0 Then
+            ' No opening tag — check for a stray closing tag only.
+            ' If found, everything before it (including the tag) is assumed to be reasoning.
+            pClose = InStr(1, s, "<channel|>", vbTextCompare)
+            If pClose > 0 Then
+                s = Mid$(s, pClose + 10)
+                Exit Do
+            End If
+            ' Neither tag present — nothing to strip.
+            Exit Do
+        End If
+
+        pClose = InStr(pOpen, s, "<channel|>", vbTextCompare)
+        If pClose = 0 Then
+            ' No closing tag: everything from the open tag on is reasoning.
+            s = Left$(s, pOpen - 1)
+            Exit Do
+        End If
+
+        ' Both tags present: remove the entire <think>...</think> block.
+        s = Left$(s, pOpen - 1) & Mid$(s, pClose + 10)
     Loop
 
     StripThinkBlocks = Trim$(s)
@@ -597,5 +634,76 @@ Public Function NormalizeAnalysisText(ByVal s As String) As String
     s = Replace(s, ChrW(&H2060), "")  ' word joiner
     s = Replace(s, ChrW(&HFEFF), "")  ' zero width no-break space / BOM
     
+    ' Remove/fix literal Unicode escape sequences that some LLMs output as text
+    ' Patterns like \u2003, U+2003 can appear as literal ASCII in model output
+    Do While InStr(s, "\u") > 0 Or InStr(s, "U+") > 0
+        s = RemoveUnicodeEscapeAndTrailingChar(s)
+    Loop
+    
     NormalizeAnalysisText = s
+End Function
+
+'=======================================================================
+' LITERAL UNICODE ESCAPE SEQUENCE CLEANUP
+' Handles cases where LLMs output escape sequences as literal text
+'=======================================================================
+
+' Strips literal Unicode escape sequences (\uXXXX or U+XXXX) from model output.
+' These can appear when models try to represent special characters but emit
+' the ASCII representation instead of the actual character.
+Private Function RemoveUnicodeEscapeAndTrailingChar(ByVal s As String) As String
+    Dim pos As Long
+    Dim hexPart As String
+    
+    ' Check for \uXXXX pattern (backslash, lowercase u, 4 hex digits)
+    pos = InStr(s, "\u")
+    If pos > 0 And pos + 5 <= Len(s) Then
+        hexPart = Mid$(s, pos + 2, 4)
+        If IsHexDigits(hexPart) Then
+            ' Remove \uXXXX (6 chars total: \, u, and 4 digits)
+            ' Also remove any single trailing letter like 'c' that may be attached
+            s = Left$(s, pos - 1) & Mid$(s, pos + 7)
+            RemoveUnicodeEscapeAndTrailingChar = s
+            Exit Function
+        End If
+    End If
+    
+    ' Check for U+XXXX pattern (uppercase U, plus sign, 4 hex digits)
+    pos = InStr(s, "U+")
+    If pos > 0 And pos + 5 <= Len(s) Then
+        hexPart = Mid$(s, pos + 2, 4)
+        If IsHexDigits(hexPart) Then
+            ' Remove U+XXXX (5 chars total: U, +, and 4 digits)
+            ' Also remove any single trailing letter like 'c' that may be attached
+            s = Left$(s, pos - 1) & Mid$(s, pos + 6)
+            RemoveUnicodeEscapeAndTrailingChar = s
+            Exit Function
+        End If
+    End If
+    
+    ' No valid escape sequence found at current position
+    RemoveUnicodeEscapeAndTrailingChar = s
+End Function
+
+' Returns True if string contains only hexadecimal digits (0-9, A-F, a-f)
+Private Function IsHexDigits(ByVal s As String) As Boolean
+    Dim i As Long
+    Dim ch As String
+    
+    If Len(s) <> 4 Then
+        IsHexDigits = False
+        Exit Function
+    End If
+    
+    For i = 1 To 4
+        ch = Mid$(s, i, 1)
+        If Not ((ch >= "0" And ch <= "9") Or _
+                (ch >= "A" And ch <= "F") Or _
+                (ch >= "a" And ch <= "f")) Then
+            IsHexDigits = False
+            Exit Function
+        End If
+    Next i
+    
+    IsHexDigits = True
 End Function

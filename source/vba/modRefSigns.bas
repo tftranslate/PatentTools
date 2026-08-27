@@ -97,25 +97,57 @@ Public Sub Insert_Reference_Signs()
     '
     '   llama.cpp  -> /apply-template + /completion, the only documented way to
     '                 receive real "prompt_progress" during prefill.
+    '                 Thinking mode is controlled per-request via chat_template_kwargs.
     '   Ollama     -> /v1/chat/completions, which reports no progress; the
     '                 status bar then shows a calibrated estimate.
     '
-    ' The native route is skipped when thinking is enabled: it constrains output
-    ' with json_schema from the very first token, which leaves no room for a
-    ' reasoning block, and /apply-template takes no chat_template_kwargs.
+    ' Route selection logic:
+    '   1. If gLlamaNative = True AND server supports /apply-template endpoint
+    '      -> Use native route (with enable_thinking passed via chat_template_kwargs)
+    '   2. Otherwise
+    '      -> Fall back to OpenAI-compatible /v1/chat/completions
     usedNativeRoute = False
+    
+    ' Debug: Log route selection decision
+    If gDebug Then
+        Dim routeDebug As String
+        routeDebug = "=== ROUTE SELECTION DEBUG ===" & vbCrLf & _
+                     "gLlamaNative setting: " & IIf(gLlamaNative, "True", "False") & vbCrLf & _
+                     "gThinking setting: " & IIf(gThinking, "True", "False") & vbCrLf
+        
+        If gLlamaNative Then
+            Dim hasApi As Boolean
+            hasApi = PT_HasNativeProgressApi(baseUrl)
+            routeDebug = routeDebug & "Server supports /apply-template: " & IIf(hasApi, "Yes", "No") & vbCrLf
+            
+            If Not hasApi Then
+                routeDebug = routeDebug & "Reason for OpenAI fallback: Server does not expose /apply-template endpoint" & vbCrLf
+            End If
+        Else
+            routeDebug = routeDebug & "Reason for OpenAI fallback: gLlamaNative is False in settings" & vbCrLf
+        End If
+        
+        Debug.Print routeDebug
+    End If
 
-    If Not gThinking Then
+    If gLlamaNative Then
         If PT_HasNativeProgressApi(baseUrl) Then
             If PT_ApplyTemplate(baseUrl, _
                     BuildMessagesArrayJson(systemPrompt, userMessage), _
-                    gApiKey, gTimeoutSec, renderedPrompt, streamError) Then
+                    gApiKey, gTimeoutSec, renderedPrompt, streamError, _
+                    gThinking) Then  ' Pass gThinking to control template rendering
                 endpoint = baseUrl & "/completion"
                 requestJson = BuildCompletionJson_JSONMode( _
                     renderedPrompt, gTemperature, gMaxTokens)
                 usedNativeRoute = True
+            Else
+                If gDebug Then Debug.Print "Route Selection: PT_ApplyTemplate failed, falling back to OpenAI-compatible route"
             End If
+        Else
+            If gDebug Then Debug.Print "Route Selection: Server does not support /apply-template, using OpenAI-compatible route"
         End If
+    Else
+        If gDebug Then Debug.Print "Route Selection: gLlamaNative=False, using OpenAI-compatible route"
     End If
 
     If Not usedNativeRoute Then
@@ -358,7 +390,7 @@ Public Function Populate_Reference_Sign_Table() As String
     End If
     On Error GoTo 0
     
-    userMessage = "Here is the patent description text. Scan it for reference signs (e.g., ""(10)"", ""(2)"", ""(3)"") and compile a list of unique reference signs found." & vbCrLf & vbCrLf & workRange.Text
+    userMessage = "Here is the patent description text." & vbCrLf & vbCrLf & "<PATENT_DESCRIPTION>" & vbCrLf & workRange.Text & vbCrLf & "</PATENT_DESCRIPTION>"
     
     ' 3. Build the request
     systemPrompt = gPromptPopulate
@@ -369,25 +401,57 @@ Public Function Populate_Reference_Sign_Table() As String
     '
     '   llama.cpp  -> /apply-template + /completion, the only documented way to
     '                 receive real "prompt_progress" during prefill.
+    '                 Thinking mode is controlled per-request via chat_template_kwargs.
     '   Ollama     -> /v1/chat/completions, which reports no progress; the
     '                 status bar then shows a calibrated estimate.
     '
-    ' The native route is skipped when thinking is enabled: it constrains output
-    ' with json_schema from the very first token, which leaves no room for a
-    ' reasoning block, and /apply-template takes no chat_template_kwargs.
+    ' Route selection logic:
+    '   1. If gLlamaNative = True AND server supports /apply-template endpoint
+    '      -> Use native route (with enable_thinking passed via chat_template_kwargs)
+    '   2. Otherwise
+    '      -> Fall back to OpenAI-compatible /v1/chat/completions
     usedNativeRoute = False
+    
+    ' Debug: Log route selection decision for population process
+    If gDebug Then
+        Dim popRouteDebug As String
+        popRouteDebug = "=== POPULATE ROUTE SELECTION DEBUG ===" & vbCrLf & _
+                        "gLlamaNative setting: " & IIf(gLlamaNative, "True", "False") & vbCrLf & _
+                        "gThinkPopulation setting: " & IIf(gThinkPopulation, "True", "False") & vbCrLf
+        
+        If gLlamaNative Then
+            Dim hasApiPop As Boolean
+            hasApiPop = PT_HasNativeProgressApi(baseUrl)
+            popRouteDebug = popRouteDebug & "Server supports /apply-template: " & IIf(hasApiPop, "Yes", "No") & vbCrLf
+            
+            If Not hasApiPop Then
+                popRouteDebug = popRouteDebug & "Reason for OpenAI fallback: Server does not expose /apply-template endpoint" & vbCrLf
+            End If
+        Else
+            popRouteDebug = popRouteDebug & "Reason for OpenAI fallback: gLlamaNative is False in settings" & vbCrLf
+        End If
+        
+        Debug.Print popRouteDebug
+    End If
 
-    If Not gThinkPopulation Then
+    If gLlamaNative Then
         If PT_HasNativeProgressApi(baseUrl) Then
             If PT_ApplyTemplate(baseUrl, _
                     BuildMessagesArrayJson(systemPrompt, userMessage), _
-                    gApiKey, gTimeoutSecPopulate, renderedPrompt, streamError) Then
+                    gApiKey, gTimeoutSecPopulate, renderedPrompt, streamError, _
+                    gThinkPopulation) Then  ' Pass gThinkPopulation to control template rendering
                 endpoint = baseUrl & "/completion"
-                requestJson = BuildCompletionJson_JSONMode( _
+                requestJson = BuildCompletionJson_PlaintextMode( _
                     renderedPrompt, gTempPopulate, gMaxTokens)
                 usedNativeRoute = True
+            Else
+                If gDebug Then Debug.Print "Population Route Selection: PT_ApplyTemplate failed, falling back to OpenAI-compatible route"
             End If
+        Else
+            If gDebug Then Debug.Print "Population Route Selection: Server does not support /apply-template, using OpenAI-compatible route"
         End If
+    Else
+        If gDebug Then Debug.Print "Population Route Selection: gLlamaNative=False, using OpenAI-compatible route"
     End If
 
     If Not usedNativeRoute Then
@@ -419,7 +483,35 @@ Public Function Populate_Reference_Sign_Table() As String
             assistantText, finishReason, streamError, _
             gTimeoutSecPopulate, gApiKey) Then
         
-        assistantText = CleanupModelOutput(assistantText)
+        ' Debug: Show raw response FROM STREAM (before cleanup)
+        If gDebug Then
+            Call ShowLargeTextDialog("Raw Stream Response", "Character count: " & CStr(Len(assistantText)) & vbCrLf & vbCrLf & assistantText, True)
+        End If
+        
+        ' Debug: Show raw model output (after cleanup but before normalization)
+        If gDebug Then
+            Dim cleanOutput As String
+            cleanOutput = CleanupModelOutput(assistantText)
+            assistantText = cleanOutput  ' Now use cleaned text for rest of processing
+            
+            If Not ShowLargeTextDialog("Raw Model Output (after cleanup)", cleanOutput, True) Then
+                Populate_Reference_Sign_Table = "Debug: User cancelled"
+                Exit Function
+            End If
+        Else
+            assistantText = CleanupModelOutput(assistantText)
+        End If
+        
+        ' Normalize table output: convert \t to TAB, sort by reference sign
+        assistantText = NormalizePopulationTable(assistantText)
+        
+        ' Debug: Show normalized output (after normalization/sorting)
+        If gDebug Then
+            If Not ShowLargeTextDialog("Normalized Output (after sorting)", assistantText, True) Then
+                Populate_Reference_Sign_Table = "Debug: User cancelled"
+                Exit Function
+            End If
+        End If
         
         If Trim$(assistantText) = "" Then
             Populate_Reference_Sign_Table = "The model returned an empty response."
@@ -431,6 +523,366 @@ Public Function Populate_Reference_Sign_Table() As String
     End If
     
     Application.StatusBar = ""
+End Function
+
+'=======================================================================
+' POPULATION TABLE NORMALIZATION
+'=======================================================================
+
+' Normalize population table output:
+' - Convert \\t escape sequences to actual TAB characters
+' - Sort table lines alphanumerically by reference sign (numeric-aware)
+' - Only processes if at least 2 valid table lines detected; otherwise returns original unchanged
+Private Function NormalizePopulationTable(ByVal assistantText As String) As String
+    On Error GoTo Failed
+   
+    ' CRITICAL: Normalize line endings - convert vbLf to vbCrLf for consistent splitting
+    ' Many models output just LF (vbLf) without CR, which Split(,, vbCrLf) won't detect
+    Dim normalizedText As String
+    normalizedText = Replace$(assistantText, vbLf, vbCrLf)
+    normalizedText = Replace$(normalizedText, vbCr & vbCr, vbCrLf)  ' Handle edge case of double-CR
+   
+    Dim allLines() As String
+    allLines = Split(normalizedText, vbCrLf)
+   
+    ' Debug: Log what we're receiving
+    If gDebug Then
+        Dim logMsg As String
+        logMsg = "=== NORMALIZATION DEBUG ===" & vbCrLf & _
+                 "Total lines in input (after LF→CRLF normalization): " & (UBound(allLines) + 1) & vbCrLf
+        MsgBox logMsg
+    End If
+ 
+    If UBound(allLines) < 1 Then
+        ' Less than 2 lines - nothing to process
+        NormalizePopulationTable = assistantText
+        Exit Function
+    End If
+    
+    Dim tableLines As New Collection
+    Dim observationLines As New Collection
+    Dim i As Long
+    Dim line As String
+    Dim normalizedLine As String
+    Dim isValid As Boolean
+    Dim tableCount As Long, obsCount As Long  ' Debug counters
+    
+    ' Classify lines as table or observation
+    For i = LBound(allLines) To UBound(allLines)
+        line = allLines(i)
+        
+        ' Check if this is a table line
+        isValid = IsTableLine(line, normalizedLine)
+        
+        If isValid Then
+            tableLines.Add normalizedLine
+            tableCount = tableCount + 1
+        Else
+            observationLines.Add line  ' Keep original for observations
+            obsCount = obsCount + 1
+        End If
+    Next i
+    
+    ' Debug: Report classification results
+    If gDebug Then
+        Dim debugLog As String
+        debugLog = "Classified " & CStr(tableCount) & " table lines and " & CStr(obsCount) & " observation lines" & vbCrLf & vbCrLf
+        
+        ' Check abort condition
+        If tableCount < 2 Then
+            debugLog = debugLog & "ABORT: Less than 2 table lines detected, returning original unchanged." & vbCrLf & vbCrLf
+            debugLog = debugLog & "Sample of first input lines that were checked:" & vbCrLf
+            Dim sampleLines As String
+            Dim j As Long
+            For j = LBound(allLines) To IIf(LBound(allLines) + 10 <= UBound(allLines), LBound(allLines) + 10, UBound(allLines))
+                sampleLines = sampleLines & "  [" & allLines(j) & "]" & vbCrLf
+            Next j
+            debugLog = debugLog & sampleLines
+        End If
+        
+        ' Show in dialog if debug enabled
+        Call ShowLargeTextDialog("Normalization Classification Debug", debugLog, True)
+    End If
+    
+    ' Abort silently: need at least 2 table lines to process
+    If tableLines.Count < 2 Then
+        NormalizePopulationTable = assistantText
+        Exit Function
+    End If
+    
+    ' Sort table lines with numeric-aware comparison
+    Call SortTableLines(tableLines)
+    
+    ' Reconstruct output: sorted table + observations
+    Dim finalOutput As String
+    finalOutput = ""
+    
+    For i = 1 To tableLines.Count
+        finalOutput = finalOutput & CStr(tableLines(i)) & vbCrLf
+    Next i
+    
+    ' Add separator only if there are observations AND the first observation is not empty
+    If observationLines.Count > 0 Then
+        Dim firstObs As String
+        firstObs = Trim$(CStr(observationLines(1)))
+        
+        ' Only add blank line separator if first observation has actual content
+        If Len(firstObs) > 0 Then
+            finalOutput = finalOutput & vbCrLf
+        End If
+    End If
+    
+    For i = 1 To observationLines.Count
+        finalOutput = finalOutput & CStr(observationLines(i)) & vbCrLf
+    Next i
+    
+    NormalizePopulationTable = finalOutput
+    Exit Function
+    
+Failed:
+    ' Silent failure - return original unchanged
+    NormalizePopulationTable = assistantText
+End Function
+
+' Check if a line is a valid table line and normalize it
+' Returns True/False via function, normalized line via ByRef parameter
+Private Function IsTableLine(ByVal line As String, ByRef normalizedLine As String) As Boolean
+    Dim prefix As String
+    Dim rest As String
+    Dim i As Long
+    Dim ch As String
+    Dim foundTab As Boolean
+    Dim sepEnd As Long
+	Dim checkLine as String
+    
+    ' Debug: Show what we're checking (first 80 chars)
+    If gDebug And Len(line) > 0 Then
+        checkLine = Left$(line, 80)
+        ' Replace special chars for display
+        checkLine = Replace$(checkLine, vbTab, "[TAB]")
+        checkLine = Replace$(checkLine, vbCrLf, "[CR][LF]")
+    End If
+    
+    ' Step 1: Extract alphanumeric prefix (1-5 characters)
+    prefix = ""
+    sepEnd = 0
+    
+    For i = 1 To Len(line)
+        ch = Mid$(line, i, 1)
+        
+        If IsAlphanumeric(ch) And Len(prefix) < 5 Then
+            prefix = prefix & ch
+            sepEnd = i
+        Else
+            ' End of prefix region
+            Exit For
+        End If
+    Next i
+    
+    ' Must have at least 1 character in prefix
+    If Len(prefix) = 0 Or Len(prefix) > 5 Then
+        IsTableLine = False
+		
+		if gDebug = 1 then
+			MsgBox "Not a table line:" & vbCrLf & checkLine, vbCritical
+		end if 
+        Exit Function
+    End If
+    
+    ' Step 2: Check for TAB or \t separator after the prefix
+    rest = Mid$(line, sepEnd + 1)
+    
+    ' Look for actual TAB character (ASCII 9)
+    Dim tabPos As Long
+    tabPos = InStr(1, rest, Chr$(9))
+    
+    If tabPos > 0 And tabPos <= 3 Then
+        ' Found TAB within first 3 chars of rest (allows some whitespace)
+        Dim textPart As String
+        textPart = Mid$(rest, tabPos + 1)
+        normalizedLine = prefix & Chr$(9) & Trim$(textPart)
+        IsTableLine = True
+        Exit Function
+    End If
+    
+    ' Look for escaped \t sequence (with optional whitespace)
+    ' In VBA, backslash is not an escape character, so we use Chr$(92) for backslash
+    rest = LTrim$(rest)
+    
+    ' Check for backslash + t as literal characters (two chars: \ and t)
+    If Len(rest) >= 2 Then
+        Dim firstTwo As String
+        firstTwo = Left$(rest, 2)
+        
+        If firstTwo = Chr$(92) & "t" Then
+            ' Exact \t with no leading space (after LTrim) - valid
+            textPart = Mid$(rest, 3)
+            normalizedLine = prefix & Chr$(9) & Trim$(textPart)
+            IsTableLine = True
+            Exit Function
+        End If
+    End If
+    
+	if gDebug = 1 then
+	   MsgBox "Not a table line:" & vbCrLf & checkLine, vbCritical
+	end if 
+    
+	' Not a table line
+    IsTableLine = False
+End Function
+
+' Check if character is alphanumeric (digits 0-9 and letters A-Z, a-z)
+Private Function IsAlphanumeric(ByVal ch As String) As Boolean
+    ch = UCase$(ch)
+    IsAlphanumeric = ((ch >= "A" And ch <= "Z") Or (ch >= "0" And ch <= "9"))
+End Function
+
+' Sort collection of table lines with numeric-aware comparison
+Private Sub SortTableLines(ByRef lines As Collection)
+    If lines.Count < 2 Then Exit Sub
+    
+    ' Convert to array for easier sorting
+    Dim arr() As String
+    ReDim arr(1 To lines.Count)
+    Dim i As Long
+    
+    For i = 1 To lines.Count
+        arr(i) = CStr(lines(i))
+    Next i
+    
+    ' Bubble sort with numeric-aware comparison
+    Dim j As Long
+    Dim temp As String
+    Dim swapped As Boolean
+    
+    Do
+        swapped = False
+        For i = 1 To UBound(arr) - 1
+            If NaturalCompare(arr(i), arr(i + 1)) > 0 Then
+                ' Swap
+                temp = arr(i)
+                arr(i) = arr(i + 1)
+                arr(i + 1) = temp
+                swapped = True
+            End If
+        Next i
+    Loop While swapped
+    
+    ' Write back to collection
+    Set lines = New Collection
+    For i = 1 To UBound(arr)
+        lines.Add arr(i)
+    Next i
+End Sub
+
+' Numeric-aware string comparison for reference signs
+' Returns: -1 if s1 < s2, 0 if equal, 1 if s1 > s2
+Private Function NaturalCompare(ByVal s1 As String, ByVal s2 As String) As Integer
+    Dim extractPrefix1 As String
+    Dim extractPrefix2 As String
+    Dim num1 As Long
+    Dim num2 As Long
+    Dim hasNum1 As Boolean
+    Dim hasNum2 As Boolean
+    
+    ' Extract leading numeric portion from the reference sign (before TAB)
+    extractPrefix1 = GetReferenceSign(s1)
+    extractPrefix2 = GetReferenceSign(s2)
+    
+    ' Trim any whitespace that might have slipped through
+    extractPrefix1 = Trim$(extractPrefix1)
+    extractPrefix2 = Trim$(extractPrefix2)
+    
+    ' Extract ONLY the leading digits for numeric comparison
+    Dim leadNum1 As String, leadNum2 As String
+    Dim i As Long, ch As String
+    
+    leadNum1 = ""
+    For i = 1 To Len(extractPrefix1)
+        ch = Mid$(extractPrefix1, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            leadNum1 = leadNum1 & ch
+        Else
+            Exit For
+        End If
+    Next i
+    
+    leadNum2 = ""
+    For i = 1 To Len(extractPrefix2)
+        ch = Mid$(extractPrefix2, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            leadNum2 = leadNum2 & ch
+        Else
+            Exit For
+        End If
+    Next i
+    
+    ' Try to parse leading digits as numbers
+    On Error Resume Next
+    If Len(leadNum1) > 0 Then
+        num1 = CLng(leadNum1)
+        hasNum1 = (Err.Number = 0)
+    Else
+        hasNum1 = False
+    End If
+    Err.Clear
+    
+    If Len(leadNum2) > 0 Then
+        num2 = CLng(leadNum2)
+        hasNum2 = (Err.Number = 0)
+    Else
+        hasNum2 = False
+    End If
+    Err.Clear
+    On Error GoTo 0
+    
+    ' Both have leading numeric portions: compare as numbers
+    If hasNum1 And hasNum2 Then
+        If num1 < num2 Then
+            NaturalCompare = -1
+        ElseIf num1 > num2 Then
+            NaturalCompare = 1
+        Else
+            NaturalCompare = 0
+        End If
+        Exit Function
+    End If
+    
+    ' Only one has leading numeric: numeric comes first (e.g., "10" < "S130")
+    If hasNum1 And Not hasNum2 Then
+        NaturalCompare = -1
+        Exit Function
+    End If
+    
+    If Not hasNum1 And hasNum2 Then
+        NaturalCompare = 1
+        Exit Function
+    End If
+    
+    ' Both non-numeric or both mixed: use string comparison
+    Dim cmp As Long
+    cmp = StrComp(extractPrefix1, extractPrefix2, vbTextCompare)
+    
+    If cmp < 0 Then
+        NaturalCompare = -1
+    ElseIf cmp > 0 Then
+        NaturalCompare = 1
+    Else
+        NaturalCompare = 0
+    End If
+End Function
+
+' Extract reference sign (text before TAB) from a table line
+Private Function GetReferenceSign(ByVal tableLine As String) As String
+    Dim tabPos As Long
+    tabPos = InStr(1, tableLine, Chr$(9))
+    
+    If tabPos > 0 Then
+        GetReferenceSign = Left$(tableLine, tabPos - 1)
+    Else
+        ' No TAB found - return entire line as fallback
+        GetReferenceSign = tableLine
+    End If
 End Function
 
 Public Sub PatentTools_EditReferenceSigns(control As IRibbonControl)
@@ -491,6 +943,10 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
     iO = 1
     iM = 1
     delta = 0
+    
+    ' Fallback skip counter: tolerate up to 2 total tokens skipped across the entire paragraph
+    Dim totalSkipped As Long
+    totalSkipped = 0
     
     Do While iO <= oWordsCmp.Count And iM <= mWordsCmp.Count
         canonO = CanonicalWordForCompare(CStr(oWordsPos(iO)(0)))
@@ -602,9 +1058,39 @@ Private Function InsertReferenceSignsOnly(ByVal targetRng As Range, ByVal origin
             Next skipAhead
             
 			If gDebug Then
-			  MsgBox strDebug3, vbCritical
-			  MsgBox strDebug4, vbCritical
-              MsgBox "DEBUG 5 - Bidirectional lookahead failed", vbCritical
+			MsgBox strDebug3, vbCritical
+			MsgBox strDebug4, vbCritical
+			MsgBox "DEBUG 5 - Bidirectional lookahead failed", vbCritical
+			End If
+
+			' Final Fallback: Skip one token on each side if totalSkipped < 2
+			' This handles cases where text corruption (e.g., literal Unicode escapes)
+            ' prevents any other recovery strategy from working.
+            If totalSkipped < 2 Then
+                If gDebug Then
+                    MsgBox "DEBUG 6 - Final fallback skip activated (total skipped so far = " & CStr(totalSkipped) & ")" & vbCrLf & _
+                           "Original: [" & CStr(oWordsCmp(iO)(0)) & "]" & vbCrLf & _
+                           "Model: [" & CStr(mWordsCmp(iM)(0)) & "]", vbInformation, "Fallback Skip"
+                End If
+
+                ' Skip one token on each side (counts as 2 total)
+                iO = iO + 1
+                iM = iM + 1
+                totalSkipped = totalSkipped + 2
+
+                If iO <= oWordsPos.Count And iM <= mWordsCmp.Count Then
+                    GoTo NextLoop
+                Else
+                    ' Ran out of tokens after skip - now hard fail
+                    If gDebug Then MsgBox "DEBUG 7 - Skipped to end of tokens, hard failing", vbCritical
+                    InsertReferenceSignsOnly = False
+                    Exit Function
+                End If
+            End If
+
+            ' Total skip limit reached (2) - hard fail
+            If gDebug Then
+                MsgBox "DEBUG 8 - Skip limit (2) reached, cannot skip further. Hard failing.", vbCritical
             End If
 			
             InsertReferenceSignsOnly = False
@@ -841,9 +1327,9 @@ Private Function BuildChatCompletionJson_JSONMode( _
     End If
 
     ' Universal override to suppress internal reasoning for models that use reasoning_effort (e.g., gpt-oss)
-    If Not gThinking Then
-        json = json & """reasoning_effort"":""low"","
-    End If
+    'If Not gThinking Then
+    '    json = json & """reasoning_effort"":""low"","
+    'End If
 
     json = json & """messages"":" & BuildMessagesArrayJson(systemMsg, userMsg)
     json = json & "}"
@@ -908,6 +1394,11 @@ End Function
 Private Function BuildMessagesArrayJson(ByVal systemMsg As String, _
                                         ByVal userMsg As String) As String
     Dim json As String
+    
+    ' Normalize line endings: CRLF → LF for all model input
+    ' Reduces transmitted data and ensures consistent token counting
+    systemMsg = Replace$(systemMsg, vbCrLf, vbLf)
+    userMsg = Replace$(userMsg, vbCrLf, vbLf)
 
     json = "["
     json = json & "{""role"":""system"",""content"":""" & _
@@ -959,6 +1450,28 @@ Private Function BuildCompletionJson_JSONMode( _
     BuildCompletionJson_JSONMode = json
 End Function
 
+' Body for the native llama.cpp POST /completion endpoint used when
+' populating the reference-sign table. This deliberately has no
+' json_schema because the population prompt requires plain-text output.
+Private Function BuildCompletionJson_PlaintextMode( _
+    ByVal promptText As String, _
+    ByVal temperature As Double, _
+    ByVal maxTokens As Long) As String
+
+    Dim json As String
+
+    json = "{"
+    json = json & """temperature"":" & FormatDotDouble(temperature) & ","
+    json = json & """n_predict"":" & CStr(maxTokens) & ","
+    json = json & """cache_prompt"":true,"
+    json = json & """stream"":true,"
+    json = json & """return_progress"":true,"
+    json = json & """sse_ping_interval"":1,"
+    json = json & """prompt"":""" & JsonEscape(promptText) & """"
+    json = json & "}"
+
+    BuildCompletionJson_PlaintextMode = json
+End Function
 
 Private Function ShowLargeTextDialog(ByVal dialogTitle As String, ByVal dialogText As String, ByVal allowCancel As Boolean) As Boolean
     Dim f As frmPromptPreview
