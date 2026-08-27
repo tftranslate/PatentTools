@@ -193,7 +193,20 @@ Public Sub Insert_Reference_Signs()
     Set rewrittenParas = ParseParagraphsFromJsonObject(assistantText)
     
     If rewrittenParas Is Nothing Then
-        MsgBox "Could not parse JSON object with paragraphs array from the model answer.", vbCritical
+        ' Check if it's likely a truncation issue vs other parsing errors
+        Dim jsonLen As Long
+        jsonLen = Len(assistantText)
+        
+        If InStr(jsonLen - 20, assistantText, "}") = 0 Then
+            ' JSON doesn't end with closing brace - likely truncated
+            MsgBox "Model response was truncated. The JSON object is incomplete." & vbCrLf & vbCrLf & _
+                   "Try increasing max_tokens (currently " & CStr(gMaxTokens) & _
+                   ") or timeouts or check if your network connection is stable.", vbCritical, "Truncated Response"
+        Else
+            MsgBox "Could not parse JSON object with paragraphs array from the model answer." & vbCrLf & vbCrLf & _
+                   "The response may contain invalid JSON characters or formatting." & vbCrLf & vbCrLf & _
+                   "Check Debug mode to see the raw output.", vbCritical, "JSON Parse Error"
+        End If
         GoTo CleanExit
     End If
     
@@ -234,9 +247,22 @@ Public Sub Insert_Reference_Signs()
     For i = 1 To paraRanges.Count
         Application.StatusBar = "Inserting reference signs in paragraph " & i & " of " & paraRanges.Count & "..."
     
-        If CStr(matchedPara(i)) = "" Then
-            If failedParagraphs <> "" Then failedParagraphs = failedParagraphs & ", "
-            failedParagraphs = failedParagraphs & CStr(i)
+        If CStr(matchedPara(i)) = "" Or Len(Trim$(CStr(matchedPara(i)))) < 3 Then
+            ' Match failed OR matched paragraph is essentially empty — check if source is also non-substantive
+            If Not IsSubstantiveParagraph(paraTexts(i)) Or Len(Trim$(paraTexts(i))) < 3 Then
+                ' Skip: both source and model are substantively empty — not a failure
+            Else
+                If gDebug Then
+                    MsgBox "Paragraph " & i & ": Matching algorithm returned empty or negligible result." & vbCrLf & _
+                           "Source paragraph length: " & Len(paraTexts(i)) & " characters" & vbCrLf & _
+                           "This means similarity threshold (< 0.7) was not met for any model paragraph in the look-ahead window.", _
+                           vbInformation, "Match Failure Debug"
+                End If
+                
+                ' Source had content but model output is missing — record as failure
+                If failedParagraphs <> "" Then failedParagraphs = failedParagraphs & ", "
+                failedParagraphs = failedParagraphs & CStr(i)
+            End If
         Else
             Set workRng = paraRanges(i).Duplicate
         
@@ -974,7 +1000,8 @@ Private Function ParseParagraphsFromJsonObject(ByVal jsonText As String) As Coll
     Dim arrStart As Long
     Dim arrEnd As Long
     Dim arrText As String
-    
+    Dim topLevelEnd As Long
+	
 	if gDebug Then
 	endif
 	
@@ -988,6 +1015,14 @@ Private Function ParseParagraphsFromJsonObject(ByVal jsonText As String) As Coll
     
     arrStart = InStr(pColon + 1, jsonText, "[")
     If arrStart = 0 Then Exit Function
+    
+    ' Check if the JSON response is complete: look for closing brace of top-level object
+    topLevelEnd = FindMatchingBracket(jsonText, InStr(1, jsonText, "{"))
+    
+    If topLevelEnd = 0 Then
+        ' Top-level object not properly closed - likely truncated response
+        Exit Function
+    End If
     
     arrEnd = FindMatchingBracket(jsonText, arrStart)
     If arrEnd = 0 Then Exit Function

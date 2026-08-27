@@ -202,6 +202,18 @@ Public Function FindMatchingBracket(ByVal s As String, ByVal openPos As Long) As
     Dim inString As Boolean
     Dim escaped As Boolean
     Dim ch As String
+    Dim openBracket As String
+    Dim closeBracket As String
+    
+    ' Determine which type of bracket we're looking for
+    openBracket = Mid$(s, openPos, 1)
+    Select Case openBracket
+        Case "[": closeBracket = "]"
+        Case "{": closeBracket = "}"
+        Case Else
+            FindMatchingBracket = 0
+            Exit Function
+    End Select
     
     depth = 0
     inString = False
@@ -221,9 +233,9 @@ Public Function FindMatchingBracket(ByVal s As String, ByVal openPos As Long) As
         Else
             If ch = """" Then
                 inString = True
-            ElseIf ch = "[" Then
+            ElseIf ch = openBracket Then
                 depth = depth + 1
-            ElseIf ch = "]" Then
+            ElseIf ch = closeBracket Then
                 depth = depth - 1
                 If depth = 0 Then
                     FindMatchingBracket = i

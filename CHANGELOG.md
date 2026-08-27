@@ -7,13 +7,14 @@ The project uses semantic-style versioning while it remains in pre-1.0 developme
 ## [0.2.0-beta]
 ### Added
 - Populate list of reference signs based on description. Go to "Edit reference sign list", click on "Populate".
-- Verification of API connection and auto-detection of available models
 - Table of reference signs is now persistent on a document level.
+- Verification of API connection and auto-detection of available models
 - Call model in streaming mode for better progress feedback while the model is working
-- System prompts are now user-editable.
+- System prompts are now user-editable, and settings including prompts can now be exported and imported into/from JSON txt files.
 - Support for gpt-oss-120b: Setting thinking to off translates to low reasoning effort for this model..
 
 ### Changed
+- Persisted settings are now stored in a single registry key as JSON.
 - More robust matching logic: Can now recover from cases where the model omits up to two tokens. This helps with gpt-oss, which tends to omit the claim number in the preamble feature.
 - More robust matching logic: Can now recover from isolated token mismatches that might occur when the model output misspells one word or corrects a misspelling in an original word. Such behavior has been seen with gemma4 26b-a4b.
 - Separated editing the reference sign table and inserting reference into two separate ribbon icons.
@@ -23,7 +24,7 @@ The project uses semantic-style versioning while it remains in pre-1.0 developme
 
 ## Fixed
 
-- Unicode processing should now work on Mac
+- Unicode processing should now work on Mac.
 
 ### TBD
 

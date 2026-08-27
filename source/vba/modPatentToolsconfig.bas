@@ -25,18 +25,18 @@ Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
 ' Tool release version.
-Public Const TOOL_VERSION As String = "0.2.0-beta"
+Public Const TOOL_VERSION As String = "0.2.0"
 
 ' Single source of truth: factory-default values for all globally persisted settings.
 Private Const DEF_ApiUrl      As String    = "http://localhost:11434"
 Private Const DEF_ApiKey      As String    = ""
 Private Const DEF_ModelName   As String    = "gemma4:12b"
 Private Const DEF_Temperature  As Double     = 0.2
-Private Const DEF_TimeoutSec   As Long       = 120
+Private Const DEF_TimeoutSec   As Long       = 300  ' Increased for insertion (was 120)
 Private Const DEF_MaxTokens    As Long       = 32768
 Private Const DEF_Thinking     As Boolean    = False
 Private Const DEF_TempPopulate As Double     = 0.6
-Private Const DEF_TimeoutSecPopulate As Long = 600
+Private Const DEF_TimeoutSecPopulate As Long = 900  ' Increased for population (was 600)
 Private Const DEF_ThinkPopulation As Boolean = True
 Private Const DEF_Debug       As Boolean   = False
 ' DEF_PromptInsert is not a Const: the factory system prompt is a multi-line text and
@@ -255,130 +255,510 @@ Public Function FormatDotDouble(ByVal dblValue As Double) As String
 End Function
 
 '=======================================================================
+' JSON SERIALIZATION AND DESERIALIZATION
+'=======================================================================
+
+Public Function VariablesToJsonObjectString() As String
+    Dim json As String
+    
+    json = "{" & Chr$(34) & "version" & Chr$(34) & ": " & Chr$(34) & TOOL_VERSION & Chr$(34) & "," & vbCrLf
+    json = json & "  " & Chr$(34) & "settings" & Chr$(34) & ": {" & vbCrLf
+    
+    ' String settings
+    json = json & "    " & Chr$(34) & "ApiUrl" & Chr$(34) & ": " & Chr$(34) & JsonEscape(gApiUrl) & Chr$(34) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "ApiKey" & Chr$(34) & ": " & Chr$(34) & JsonEscape(gApiKey) & Chr$(34) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "ModelName" & Chr$(34) & ": " & Chr$(34) & JsonEscape(gModelName) & Chr$(34) & "," & vbCrLf
+    
+    ' Numeric settings (JSON accepts standard decimal point, independent of local format)
+    json = json & "    " & Chr$(34) & "Temperature" & Chr$(34) & ": " & FormatDotDouble(gTemperature) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "TimeoutSec" & Chr$(34) & ": " & CStr(gTimeoutSec) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "MaxTokens" & Chr$(34) & ": " & CStr(gMaxTokens) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "Thinking" & Chr$(34) & ": " & IIf(gThinking, "true", "false") & "," & vbCrLf
+    
+    ' Population settings
+    json = json & "    " & Chr$(34) & "TempPopulate" & Chr$(34) & ": " & FormatDotDouble(gTempPopulate) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "TimeoutSecPopulate" & Chr$(34) & ": " & CStr(gTimeoutSecPopulate) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "ThinkPopulation" & Chr$(34) & ": " & IIf(gThinkPopulation, "true", "false") & "," & vbCrLf
+    
+    ' Other settings
+    json = json & "    " & Chr$(34) & "Debug" & Chr$(34) & ": " & IIf(gDebug, "true", "false") & "," & vbCrLf
+    
+    ' Prompt strings (these contain the heavy lifting for special characters)
+    json = json & "    " & Chr$(34) & "PromptInsert" & Chr$(34) & ": " & Chr$(34) & JsonEscape(gPromptInsert) & Chr$(34) & "," & vbCrLf
+    json = json & "    " & Chr$(34) & "PromptPopulate" & Chr$(34) & ": " & Chr$(34) & JsonEscape(gPromptPopulate) & Chr$(34) & vbCrLf
+    
+    json = json & "  }" & vbCrLf & "}"
+    
+    VariablesToJsonObjectString = json
+End Function
+
+' ======================================================================
+' JSON SERIALIZATION AND DESERIALIZATION (Continued)
+' ======================================================================
+
+' Helper to extract the version string from JSON root level for validation
+Private Function ExtractVersionFromJson(jsonText As String) As String
+    Dim pKeyStart As Long      ' Position of opening quote of "version" key
+    Dim pKeyEnd As Long        ' Position of closing quote of "version" key
+    Dim pColon As Long         ' Position of colon after the key
+    Dim pValueStart As Long    ' Position of opening quote of version value
+    Dim pValueEnd As Long      ' Position of closing quote of version value
+    
+    ' Find "version" key at root level (case-sensitive)
+    pKeyStart = InStr(1, jsonText, Chr$(34) & "version" & Chr$(34), vbBinaryCompare)
+    If pKeyStart = 0 Then Exit Function
+    
+    ' Key end position is pKeyStart + length of '"version"' (9 chars)
+    pKeyEnd = pKeyStart + 8
+    
+    ' Find colon after the key, starting from immediately after closing quote
+    pColon = InStr(pKeyEnd + 1, jsonText, ":")
+    If pColon = 0 Then Exit Function
+    
+    ' Skip whitespace to find the opening quote of the value
+    Do While pColon <= Len(jsonText) And (Mid$(jsonText, pColon, 1) = " " Or Mid$(jsonText, pColon, 1) = vbTab)
+        pColon = pColon + 1
+    Loop
+    
+    If pColon >= Len(jsonText) Then Exit Function
+    
+    pValueStart = InStr(pColon, jsonText, Chr$(34), vbBinaryCompare)
+    If pValueStart = 0 Then Exit Function
+    
+    ' Find the matching closing quote (handles escaped quotes inside the string)
+    pValueEnd = FindJsonStringEnd(jsonText, pValueStart + 1)
+    If pValueEnd = 0 Then Exit Function
+    
+    ExtractVersionFromJson = Mid$(jsonText, pValueStart + 1, pValueEnd - pValueStart - 1)
+End Function
+
+' Extracts the major.minor prefix from a version string (e.g., "0.2.0-beta" -> "0.2")
+Private Function GetVersionMajorMinor(versionStr As String) As String
+    Dim firstDot As Long
+    Dim secondDot As Long
+    
+    ' Find first dot (separates major from minor)
+    firstDot = InStr(1, versionStr, ".")
+    If firstDot = 0 Then
+        ' No dots found - return whole string as fallback
+        GetVersionMajorMinor = versionStr
+        Exit Function
+    End If
+    
+    ' Find second dot (separates minor from patch)
+    secondDot = InStr(firstDot + 1, versionStr, ".")
+    If secondDot = 0 Then
+        ' Only one dot found - return everything up to end of string (major.minor or major only)
+        GetVersionMajorMinor = Left$(versionStr, firstDot)  ' Include the dot but not what follows
+        Exit Function
+    End If
+    
+    ' Return everything from start to just before the second dot (i.e., major.minor)
+    GetVersionMajorMinor = Left$(versionStr, secondDot - 1)
+End Function
+
+' Returns True if version1 is strictly older than version2 (based on major.minor comparison)
+Private Function IsVersionOlderThan(version1 As String, version2 As String) As Boolean
+    Dim major1 As Long, minor1 As Long
+    Dim major2 As Long, minor2 As Long
+    Dim firstDot As Long, secondDot As Long
+    Dim rest As String
+    
+    ' Parse version1: major.minor
+    major1 = 0: minor1 = 0
+    firstDot = InStr(1, version1, ".")
+    If firstDot > 0 Then
+        major1 = CLng(Left$(version1, firstDot - 1))
+        secondDot = InStr(firstDot + 1, version1, ".")
+        If secondDot > 0 Then
+            minor1 = CLng(Mid$(version1, firstDot + 1, secondDot - firstDot - 1))
+        Else
+            ' No second dot - try to parse everything after first dot as minor
+            rest = Mid$(version1, firstDot + 1)
+            If InStr(rest, "-") > 0 Then rest = Left$(rest, InStr(rest, "-") - 1)  ' Remove pre-release suffix
+            If IsNumeric(rest) Then minor1 = CLng(rest)
+        End If
+    Else
+        major1 = CLng(version1)
+    End If
+    
+    ' Parse version2: major.minor
+    major2 = 0: minor2 = 0
+    firstDot = InStr(1, version2, ".")
+    If firstDot > 0 Then
+        major2 = CLng(Left$(version2, firstDot - 1))
+        secondDot = InStr(firstDot + 1, version2, ".")
+        If secondDot > 0 Then
+            minor2 = CLng(Mid$(version2, firstDot + 1, secondDot - firstDot - 1))
+        Else
+            rest = Mid$(version2, firstDot + 1)
+            If InStr(rest, "-") > 0 Then rest = Left$(rest, InStr(rest, "-") - 1)
+            If IsNumeric(rest) Then minor2 = CLng(rest)
+        End If
+    Else
+        major2 = CLng(version2)
+    End If
+    
+    ' Compare: older if major is smaller, or same major but minor is smaller
+    If major1 < major2 Then
+        IsVersionOlderThan = True
+    ElseIf major1 = major2 And minor1 < minor2 Then
+        IsVersionOlderThan = True
+    Else
+        IsVersionOlderThan = False
+    End If
+End Function
+
+Public Function LoadVariablesFromJsonObjectString(jsonText As String, _
+                                                  Optional ByVal bypassVersionCheck As Boolean = False) As Boolean
+    Dim settingsStart As Long
+    Dim settingsEnd As Long
+    Dim scanArea As String
+    Dim loadedVersion As String
+    
+    ' ERROR HANDLING: Save original values for rollback on failure
+    Dim orig_ApiUrl As String
+    Dim orig_ApiKey As String
+    Dim orig_ModelName As String
+    Dim orig_Temperature As Double
+    Dim orig_TimeoutSec As Long
+    Dim orig_MaxTokens As Long
+    Dim orig_Thinking As Boolean
+    Dim orig_TempPopulate As Double
+    Dim orig_TimeoutSecPopulate As Long
+    Dim orig_ThinkPopulation As Boolean
+    Dim orig_Debug As Boolean
+    Dim orig_PromptInsert As String
+    Dim orig_PromptPopulate As String
+    
+    ' Capture current values before any modification
+    orig_ApiUrl = gApiUrl
+    orig_ApiKey = gApiKey
+    orig_ModelName = gModelName
+    orig_Temperature = gTemperature
+    orig_TimeoutSec = gTimeoutSec
+    orig_MaxTokens = gMaxTokens
+    orig_Thinking = gThinking
+    orig_TempPopulate = gTempPopulate
+    orig_TimeoutSecPopulate = gTimeoutSecPopulate
+    orig_ThinkPopulation = gThinkPopulation
+    orig_Debug = gDebug
+    orig_PromptInsert = gPromptInsert
+    orig_PromptPopulate = gPromptPopulate
+    
+    On Error GoTo LoadFailed
+    
+    ' Validate version compatibility first (skip if bypass requested)
+    If Not bypassVersionCheck Then
+        loadedVersion = ExtractVersionFromJson(jsonText)
+        If Len(loadedVersion) > 0 Then
+            ' Compare only major.minor versions (ignore patch and build numbers)
+            If GetVersionMajorMinor(loadedVersion) <> GetVersionMajorMinor(TOOL_VERSION) Then
+                ' Version mismatch - return False but do not raise error
+                LoadVariablesFromJsonObjectString = False
+                GoTo RollbackAndExit
+            End If
+        End If
+    End If
+    
+    ' Find the "settings" object
+    settingsStart = InStr(1, jsonText, Chr$(34) & "settings" & Chr$(34), vbBinaryCompare)
+    If settingsStart = 0 Then Err.Raise 5, , "Missing required 'settings' key in JSON. " & _
+            "Settings file may be corrupted or from an incompatible version."
+    
+    settingsStart = InStr(settingsStart + 10, jsonText, "{")
+    If settingsStart = 0 Then Err.Raise 5, , "Malformed JSON object structure." & _
+            " Settings file may be corrupted."
+    
+    settingsEnd = FindMatchingBracket(jsonText, settingsStart)
+    If settingsEnd = 0 Then Err.Raise 5, , "Could not find closing bracket for 'settings'." & _
+            " Settings file may be corrupted."
+    
+    scanArea = Mid$(jsonText, settingsStart + 1, settingsEnd - settingsStart - 1)
+    
+    ' Extract all values (validation errors will trigger rollback below)
+    gApiUrl = ExtractStringKey(scanArea, "ApiUrl")
+    gApiKey = ExtractStringKey(scanArea, "ApiKey")
+    gModelName = ExtractStringKey(scanArea, "ModelName")
+    gTemperature = ExtractNumberKeyDouble(scanArea, "Temperature")
+    gTimeoutSec = CLng(ExtractNumberKeyLong(scanArea, "TimeoutSec"))
+    gMaxTokens = CLng(ExtractNumberKeyLong(scanArea, "MaxTokens"))
+    gThinking = ExtractBooleanKey(scanArea, "Thinking")
+    gTempPopulate = ExtractNumberKeyDouble(scanArea, "TempPopulate")
+    gTimeoutSecPopulate = CLng(ExtractNumberKeyLong(scanArea, "TimeoutSecPopulate"))
+    gThinkPopulation = ExtractBooleanKey(scanArea, "ThinkPopulation")
+    gDebug = ExtractBooleanKey(scanArea, "Debug")
+    gPromptInsert = ExtractStringKey(scanArea, "PromptInsert")
+    gPromptPopulate = ExtractStringKey(scanArea, "PromptPopulate")
+    
+    ' Success - exit normally without rollback
+    LoadVariablesFromJsonObjectString = True
+    Exit Function
+    
+LoadFailed:
+    ' ROLLBACK: Restore all original values on any error
+    gApiUrl = orig_ApiUrl
+    gApiKey = orig_ApiKey
+    gModelName = orig_ModelName
+    gTemperature = orig_Temperature
+    gTimeoutSec = orig_TimeoutSec
+    gMaxTokens = orig_MaxTokens
+    gThinking = orig_Thinking
+    gTempPopulate = orig_TempPopulate
+    gTimeoutSecPopulate = orig_TimeoutSecPopulate
+    gThinkPopulation = orig_ThinkPopulation
+    gDebug = orig_Debug
+    gPromptInsert = orig_PromptInsert
+    gPromptPopulate = orig_PromptPopulate
+    
+RollbackAndExit:
+    LoadVariablesFromJsonObjectString = False
+End Function
+
+' Helper functions for the deserializer
+Private Function ExtractStringKey(scanArea As String, keyName As String) As String
+    Dim pKey As Long
+    Dim pColon As Long
+    Dim pOpenQuote As Long
+    Dim pCloseQuote As Long
+    
+    pKey = InStr(1, scanArea, Chr$(34) & keyName & Chr$(34))
+    If pKey = 0 Then Err.Raise 5, , "Missing required key: " & keyName & _
+            ". Settings file may be corrupted or from an incompatible version."
+    
+    pColon = InStr(pKey + Len(keyName) + 2, scanArea, ":")
+    If pColon = 0 Then Err.Raise 5, , "Missing colon for key: " & keyName
+    
+    ' Skip whitespace and quotes to find the string value start
+    pOpenQuote = InStr(pColon, scanArea, Chr$(34))
+    If pOpenQuote = 0 Then Err.Raise 5, , "Malformed string value for key: " & keyName
+    
+    pCloseQuote = FindJsonStringEnd(scanArea, pOpenQuote + 1)
+    If pCloseQuote = 0 Then Err.Raise 5, , "Unterminated string for key: " & keyName
+    
+    ExtractStringKey = JsonUnescape(Mid$(scanArea, pOpenQuote + 1, pCloseQuote - pOpenQuote - 1))
+End Function
+
+Private Function ExtractNumberKeyDouble(scanArea As String, keyName As String) As Double
+    Dim pKey As Long
+    Dim pColon As Long
+    Dim i As Long
+    Dim ch As String
+    Dim numStr As String
+    
+    pKey = InStr(1, scanArea, Chr$(34) & keyName & Chr$(34))
+    If pKey = 0 Then Err.Raise 5, , "Missing required key: " & keyName & _
+            ". Settings file may be corrupted or from an incompatible version."
+    
+    pColon = InStr(pKey + Len(keyName) + 2, scanArea, ":")
+    If pColon = 0 Then Err.Raise 5, , "Missing colon for key: " & keyName
+    
+    ' Find the start of the number (skip whitespace after colon)
+    i = pColon + 1
+    Do While i <= Len(scanArea) And (Mid$(scanArea, i, 1) = " " Or Mid$(scanArea, i, 1) = vbTab Or Mid$(scanArea, i, 1) = vbCr Or Mid$(scanArea, i, 1) = vbLf)
+        i = i + 1
+    Loop
+    
+    ' Extract number characters
+    numStr = ""
+    Do While i <= Len(scanArea)
+        ch = Mid$(scanArea, i, 1)
+        If (ch >= "0" And ch <= "9") Or ch = "." Or ch = "-" Then
+            numStr = numStr & ch
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    
+    ' Validate extracted number string
+    If Len(numStr) = 0 Then Err.Raise 5, , "Empty number value for key: " & keyName & _
+            ". Settings file may be corrupted."
+    If Not IsNumeric(numStr) Then Err.Raise 5, , "Invalid number format '" & numStr & _
+            "' for key: " & keyName & ". Settings file may be corrupted."
+    
+    ' Use ParseDotDouble for locale-independent decimal point handling
+    ExtractNumberKeyDouble = ParseDotDouble(numStr)
+End Function
+
+Private Function ExtractNumberKeyLong(scanArea As String, keyName As String) As String
+    Dim pKey As Long
+    Dim pColon As Long
+    Dim i As Long
+    Dim ch As String
+    Dim numStr As String
+    
+    pKey = InStr(1, scanArea, Chr$(34) & keyName & Chr$(34))
+    If pKey = 0 Then Err.Raise 5, , "Missing required key: " & keyName & _
+            ". Settings file may be corrupted or from an incompatible version."
+    
+    pColon = InStr(pKey + Len(keyName) + 2, scanArea, ":")
+    If pColon = 0 Then Err.Raise 5, , "Missing colon for key: " & keyName
+    
+    i = pColon + 1
+    Do While i <= Len(scanArea) And (Mid$(scanArea, i, 1) = " " Or Mid$(scanArea, i, 1) = vbTab Or Mid$(scanArea, i, 1) = vbCr Or Mid$(scanArea, i, 1) = vbLf)
+        i = i + 1
+    Loop
+    
+    numStr = ""
+    Do While i <= Len(scanArea)
+        ch = Mid$(scanArea, i, 1)
+        If (ch >= "0" And ch <= "9") Or ch = "-" Then
+            numStr = numStr & ch
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    
+    ' Validate extracted number string
+    If Len(numStr) = 0 Then Err.Raise 5, , "Empty number value for key: " & keyName & _
+            ". Settings file may be corrupted."
+    If Not IsNumeric(numStr) Then Err.Raise 5, , "Invalid integer format '" & numStr & _
+            "' for key: " & keyName & ". Settings file may be corrupted."
+    
+    ExtractNumberKeyLong = numStr
+End Function
+
+Private Function ExtractBooleanKey(scanArea As String, keyName As String) As Boolean
+    Dim pKey As Long
+    Dim pColon As Long
+    Dim i As Long
+    Dim ch As String
+    Dim valStr As String
+    
+    pKey = InStr(1, scanArea, Chr$(34) & keyName & Chr$(34))
+    If pKey = 0 Then Err.Raise 5, , "Missing required key: " & keyName & _
+            ". Settings file may be corrupted or from an incompatible version."
+    
+    pColon = InStr(pKey + Len(keyName) + 2, scanArea, ":")
+    If pColon = 0 Then Err.Raise 5, , "Missing colon for key: " & keyName
+    
+    i = pColon + 1
+    Do While i <= Len(scanArea) And (Mid$(scanArea, i, 1) = " " Or Mid$(scanArea, i, 1) = vbTab Or Mid$(scanArea, i, 1) = vbCr Or Mid$(scanArea, i, 1) = vbLf)
+        i = i + 1
+    Loop
+    
+    valStr = ""
+    Do While i <= Len(scanArea)
+        ch = Mid$(scanArea, i, 1)
+        If (ch >= "a" And ch <= "z") Or (ch >= "A" And ch <= "Z") Then
+            valStr = valStr & ch
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    
+    ExtractBooleanKey = (LCase$(valStr) = "true")
+End Function
+
+'=======================================================================
 ' PERSISTENCE
 '=======================================================================
 
 Public Sub LoadPatentToolsSettings()
-    Dim s As String
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "ApiUrl", "")
-    gApiUrl     = IIf(Len(s) > 0, s, DEF_ApiUrl)
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "ApiKey", "")
-    gApiKey     = IIf(Len(s) > 0, s, DEF_ApiKey)
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "ModelName", "")
-    gModelName  = IIf(Len(s) > 0, s, DEF_ModelName)
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "Temperature", "")
-    If Len(s) > 0 Then
-        gTemperature = ParseDotDouble(s)
+    Dim jsonText As String
+    Dim loadSuccess As Boolean
+    Dim loadedVersion As String
+    Dim versionsIncompatible As Boolean
+    
+    ' Load consolidated settings JSON from registry (single key)
+    jsonText = GetSetting(APP_NAME, SECTION_NAME, "SettingsJson", "")
+    
+    If Len(jsonText) > 0 Then
+        ' Extract version first to decide how to handle incompatibility
+        loadedVersion = ExtractVersionFromJson(jsonText)
+        versionsIncompatible = False
+        
+        If Len(loadedVersion) > 0 Then
+            ' Check for major.minor incompatibility
+            If GetVersionMajorMinor(loadedVersion) <> GetVersionMajorMinor(TOOL_VERSION) Then
+                versionsIncompatible = True
+            End If
+        End If
+        
+        If Not versionsIncompatible Then
+            ' Versions compatible (same major.minor, patch may differ) - try normal load
+            loadSuccess = LoadVariablesFromJsonObjectString(jsonText, False)
+            
+            If Not loadSuccess Then
+                ' Parse error or other issue - revert to defaults silently
+                Call LoadDefaultsToVariables()
+                Call SavePatentToolsSettings
+            End If
+        Else
+            ' Versions incompatible - decide based on age
+            If IsVersionOlderThan(loadedVersion, TOOL_VERSION) Then
+                ' Settings are OLDER than current tool - offer user choice to try loading anyway
+                Dim userChoice As VbMsgBoxResult
+                userChoice = MsgBox( _
+                    "Your saved settings are from an older version of PatentTools." & vbCrLf & vbCrLf & _
+                    "Try to use saved settings anyway?", _
+                    vbYesNo + vbQuestion, "Settings Version Older")
+                
+                If userChoice = vbYes Then
+                    ' User chose to try loading old settings - bypass version check
+                    loadSuccess = LoadVariablesFromJsonObjectString(jsonText, True)
+                    If Not loadSuccess Then
+                        ' Loading failed - fall back to defaults
+                        Call LoadDefaultsToVariables()
+                        Call SavePatentToolsSettings
+                    End If
+                Else
+                    ' User chose no - load defaults directly
+                    Call LoadDefaultsToVariables()
+                    Call SavePatentToolsSettings
+                End If
+            Else
+                ' Settings are NEWER than current tool - silently use defaults, no dialog
+                Call LoadDefaultsToVariables()
+                Call SavePatentToolsSettings
+            End If
+        End If
     Else
-        gTemperature = DEF_Temperature
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "TimeoutSec", "")
-    If Len(s) > 0 Then
-        gTimeoutSec = CLng(s)
-    Else
-        gTimeoutSec = DEF_TimeoutSec
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "TempPopulate", "")
-    If Len(s) > 0 Then
-        gTempPopulate = ParseDotDouble(s)
-    Else
-        gTempPopulate = DEF_TempPopulate
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "TimeoutSecPopulate", "")
-    If Len(s) > 0 Then
-        gTimeoutSecPopulate = CLng(s)
-    Else
-        gTimeoutSecPopulate = DEF_TimeoutSecPopulate
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "ThinkPopulation", "")
-    If Len(s) > 0 Then
-        gThinkPopulation = CBool(Val(s))
-    Else
-        gThinkPopulation = DEF_ThinkPopulation
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "MaxTokens", "")
-    If Len(s) > 0 Then
-        gMaxTokens = CLng(s)
-    Else
-        gMaxTokens = DEF_MaxTokens
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "Thinking", "")
-    If Len(s) > 0 Then
-        gThinking = CBool(Val(s))
-    Else
-        gThinking = DEF_Thinking
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "Debug", "")
-    If Len(s) > 0 Then
-        gDebug = CBool(Val(s))
-    Else
-        gDebug = DEF_Debug
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "PromptInsert", "")
-    If Len(s) > 0 Then
-        gPromptInsert = DecodeMultiLineSetting(s)
-    Else
-        gPromptInsert = DEF_PromptInsert()
-    End If
-
-    s = GetSetting(APP_NAME, SECTION_NAME, "PromptPopulate", "")
-    If Len(s) > 0 Then
-        gPromptPopulate = DecodeMultiLineSetting(s)
-    Else
-        gPromptPopulate = DEF_PromptPopulate()
-    End If
-
-    ' If the registry is completely empty (first run), write defaults so future loads persist.
-    If GetSetting(APP_NAME, SECTION_NAME, "ApiUrl", "__NULL__") = "__NULL__" Then
-        SavePatentToolsSettings
+        ' No settings found: load factory defaults
+        Call LoadDefaultsToVariables()
+        
+        ' Persist defaults so they survive for future loads
+        Call SavePatentToolsSettings
     End If
 End Sub
 
 ' Resets all globally persisted settings in the Windows registry to their factory defaults.
 Public Sub ResetSettingsToDefaults()
-    gApiUrl     = DEF_ApiUrl
-    gApiKey     = DEF_ApiKey
-    gModelName  = DEF_ModelName
-    gTemperature = DEF_Temperature
-    gTimeoutSec = DEF_TimeoutSec
-    gTempPopulate = DEF_TempPopulate
-    gTimeoutSecPopulate = DEF_TimeoutSecPopulate
-    gThinkPopulation = DEF_ThinkPopulation
-    gMaxTokens  = DEF_MaxTokens
-    gThinking   = DEF_Thinking
-    gDebug      = DEF_Debug
-    gPromptInsert   = DEF_PromptInsert()
-    gPromptPopulate = DEF_PromptPopulate()
+    ' Load defaults into variables
+    Call LoadDefaultsToVariables()
+    
+    ' Persist to registry
+    Call SavePatentToolsSettings
+End Sub
 
-    SavePatentToolsSettings
+' Loads factory-default values into all module-level variables (without persisting to registry).
+Private Sub LoadDefaultsToVariables()
+    gApiUrl           = DEF_ApiUrl
+    gApiKey           = DEF_ApiKey
+    gModelName        = DEF_ModelName
+    gTemperature      = DEF_Temperature
+    gTimeoutSec       = DEF_TimeoutSec
+    gMaxTokens        = DEF_MaxTokens
+    gThinking         = DEF_Thinking
+    gTempPopulate     = DEF_TempPopulate
+    gTimeoutSecPopulate = DEF_TimeoutSecPopulate
+    gThinkPopulation  = DEF_ThinkPopulation
+    gDebug            = DEF_Debug
+    gPromptInsert     = DEF_PromptInsert()
+    gPromptPopulate   = DEF_PromptPopulate()
 End Sub
 
 Public Sub SavePatentToolsSettings()
-    SaveSetting APP_NAME, SECTION_NAME, "ApiUrl", gApiUrl
-    SaveSetting APP_NAME, SECTION_NAME, "ApiKey", gApiKey
-    SaveSetting APP_NAME, SECTION_NAME, "ModelName", gModelName
-    SaveSetting APP_NAME, SECTION_NAME, "Temperature", FormatDotDouble(gTemperature)
-    SaveSetting APP_NAME, SECTION_NAME, "TimeoutSec", CStr(gTimeoutSec)
-    SaveSetting APP_NAME, SECTION_NAME, "TempPopulate", FormatDotDouble(gTempPopulate)
-    SaveSetting APP_NAME, SECTION_NAME, "TimeoutSecPopulate", CStr(gTimeoutSecPopulate)
-    SaveSetting APP_NAME, SECTION_NAME, "ThinkPopulation", IIf(gThinkPopulation, "1", "0")
-    SaveSetting APP_NAME, SECTION_NAME, "MaxTokens", CStr(gMaxTokens)
-    SaveSetting APP_NAME, SECTION_NAME, "Thinking", IIf(gThinking, "1", "0")
-    SaveSetting APP_NAME, SECTION_NAME, "Debug", IIf(gDebug, "1", "0")
-    SaveSetting APP_NAME, SECTION_NAME, "PromptInsert",   EncodeMultiLineSetting(gPromptInsert)
-    SaveSetting APP_NAME, SECTION_NAME, "PromptPopulate", EncodeMultiLineSetting(gPromptPopulate)
+    Dim jsonText As String
+    
+    ' Serialize all module-level variables to JSON
+    jsonText = VariablesToJsonObjectString()
+    
+    ' Save consolidated JSON to registry (single key)
+    SaveSetting APP_NAME, SECTION_NAME, "SettingsJson", jsonText
 End Sub
 
 Public Function NormalizeApiBaseUrl(ByVal s As String) As String

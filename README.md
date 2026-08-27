@@ -1,42 +1,73 @@
-# Patent Tools for Microsoft Word v. 0.2.0-beta
+# Patent Tools for Microsoft Word v. 0.2.0
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-Patent Tools is a Microsoft Word `.dotm` add-in for connecting Microsoft Word to a locally or remotely deployed OpenAI compatible OpenAI-compatible language model endpoint.
+Patent Tools is a Microsoft Word `.dotm` add-in for connecting Microsoft Word to a locally or remotely deployed OpenAI compatible OpenAI-compatible language model endpoint and using the model to perform certain tasks that repeatedly occur in patent attorney practice.
 
-At the present time, the tool supports compiling reference sign lists and smart insertion of the reference signs into claim text. Unlike existing solutions, it supports any language supported by the model and will happily deal with inflected languages such as German, French and others, as well as with difficult cases where reference signs depend on context. It is packaged as a self-contained Word template add-in with a custom Ribbon tab.
+At the present time, Patent Tools supports auto-generation and editing of reference sign lists and smart insertion of the reference signs into claim text. Unlike existing solutions, it supports any language supported by the model and will happily deal with inflected languages such as German, Ukrainian and others, as well as with difficult cases where reference signs depend on context. It is packaged as a self-contained Word template add-in with a custom Ribbon tab.
 
-Flexible programmatic checks make sure that any model hallucinations, omissions or additions other than reference signs are not carried over into the claim set. All changes applied by the plugin, i.e. the reference signs inserted, are marked up in track changes mode so you can be sure the model does not modify the claims in any unintended way.
+Flexible programmatic checks make sure that any model hallucinations, omissions or additions other than reference signs are not carried over into the claim set while still picking up on the reference signs. All changes applied to the claim set, i.e. the reference signs inserted, are marked up in track changes mode so you can be sure the model does not modify the claims in any unintended way.
 
-This add-in has been validated to work reasonably well and fast in English as well as non-English languages with sufficiently smart edge models hosted by llama.cpp. The target hardware are unified memory systems such as DGX Spark, AMD Strix Halo or a Mac Ultra. However this add-in can of course also be connected to a public or private cloud-based service that provides OpenAI compatible API endpoints.
+This add-in has been validated to work reasonably well and fast in English as well as non-English languages with sufficiently smart edge models. The target hardware are unified memory systems such as DGX Spark, AMD Strix Halo or a Mac Ultra, or systems with RTX5090 or similar having at least 24 GB VRAM. Also, Patent Tools can be connected to a public or private cloud-based service that provides OpenAI compatible API endpoints.
 
 Further features may be added in the future.
 
 ![Screenshot of Patent Tools](docs/screenshot.png)
 
-## What it does
+## Installation
 
-Patent Tools is designed to:
+To make the Ribbon and macros available in all Word windows, the `.dotm` must be installed as a **global Word add-in**, not merely opened like a normal template. Word automatically loads `.dotm` templates placed in the Word **Startup** folder at launch.
 
-- Read the current selection, or the whole document if nothing is selected.
-- Let you enter a list of reference signs (extracting reference signs is currently out of scope, you could just upload the description into a chatbot and ask it to prepare a list) in free format along with any custom prompts.
-- Use any OpenAI-compatible chat-completions endpoint to produce a version of the claims from the current selection or whole documents with reference signs inserted.
-- Insert the returned reference signs into the Word document using Track Changes without altering anything else.
-- Keep formatting and punctuation intact as far as possible through conservative alignment logic.
+### Manual installation
 
-Typical use case:
+1. Close all Word windows.
+2. Locate Word’s Startup folder.
+3. Copy `PatentTools.dotm` into that folder.
+4. Reopen Word.
+5. Confirm that a **Patent Tools** tab appears in the Ribbon when you open a Word document.
 
-- Patent claim drafting in Word.
-- Semi-automated insertion of reference signs in response to a first office action.
-- Local/private model workflows using `llama.cpp` or another OpenAI-compatible inference server.
+A common Startup path on Windows is:
 
-## Ribbon interface
+```
+C:\Users\<YourUserName>\AppData\Roaming\Microsoft\Word\STARTUP
+```
 
-After installation, Word shows a custom Ribbon tab named **Patent Tools**. The tab contains:
+The exact folder can be checked in Word under:
 
-- **Insert reference signs** — runs the main claim-processing workflow.
-- **Edit reference signs** — lets you populate the reference sign list from the description and manually edit it before insertion.
-- **Settings** — opens the model and prompt configuration dialog.
+```
+File -> Options -> Advanced -> General -> File Locations -> Startup
+```
+
+If the file was downloaded from the internet, Windows may block it. In that case:
+
+1. Right-click `PatentTools.dotm`.
+2. Choose **Properties**.
+3. If shown, click **Unblock**.
+4. Click **Apply** and **OK**.
+
+## How to use
+
+1. Open a document you would like to work with in Word.
+
+2. Open the **Patent Tools** tab.
+
+3. Click **Settings** and configure the endpoint.
+
+4. Click **Edit reference signs**** and paste your reference sign list, or click on **Populate** to have the model auto-generate a reference sign list and edit the model output. 
+
+   Note that you can put any arbitrary instructions to the model below the reference sign list, these will be considered during reference sign insertion.
+
+   When finished, close the dialog with **OK**.
+
+5. Select the relevant claim text in your currently open document, or leave nothing selected to process the full document (not recommended)
+
+6. Click **Insert reference signs** in the Patent Tools ribbon.
+
+7. Paste the previously prepared reference sign table into the dialog. **Please note**: If you use a smart model, you may also add any special prompts in difficult cases where the model should pay attention on how to do things the way you want.
+
+8. The status bar (windows button shows elapsed time to indicate work in progress).
+
+9. Review the inserted changes in Track Changes mode.
 
 ## Settings dialog
 
@@ -88,60 +119,23 @@ Recommended safe usage:
 
 This add-in has been validated with:
 
-- **Model:** gemma-4 31b, qwen-3.8 27b, and gpt-oss-120b
+| Model              | thinking for insertion | thinking for population | remarks                                                      |
+| ------------------ | ---------------------- | ----------------------- | ------------------------------------------------------------ |
+| gemma-4 31b        | no                     | yes or no               | thinking on for population improves additional observations  |
+| gemma-4 26b-a4b    | no                     | yes or no               | not as stable as gemma-4 31b, but still useful               |
+| gemma-4 12b        | no                     | yes or no               | might miss some signs, but still useful                      |
+| qwen-3.8 27b       | no                     | no                      | think on for population makes things a bit better but very slow |
+| qwen-3.5 122b-a10b | no                     | no                      | performs well even in non-thinking mode                      |
+| qwen-3.6-35b-a3b   | --                     | --                      | Results were unsatisfactory. Population works, but insertion is not reliable. |
+| gpt-oss-120b       | no                     | no                      | The model always thinks, but "thinking off" sets a low reasoning effort, which is fully sufficient. |
 
-  Tests with gemma-4 26b-a4b were promising and it might work for you, but it is not as stable as gemma-4 31b.
-  
-  Note: For gemma and qwen, turn ```thinking```off for claim insertion, but on for population. For gpt-oss, turn ```thinking```off for both.
-- **Mode:** non-thinking mode / low reasoning effort
-- **Endpoint type:** OpenAI-compatible chat completions API
+As a rule of thumb, try in non-thinking mode first. Only activate thinking if you need it. Thinking does not necessarily increase accuracy for this type of task. They key model quality is precise reproduction of the claims. Dense model perform better here than equally sized MoE models. 
 
-## Installation
-
-To make the Ribbon and macros available in all Word windows, the `.dotm` must be installed as a **global Word add-in**, not merely opened like a normal template. Word automatically loads `.dotm` templates placed in the Word **Startup** folder at launch.
-
-### Manual installation
-
-1. Close all Word windows.
-2. Locate Word’s Startup folder.
-3. Copy `PatentTools.dotm` into that folder.
-4. Reopen Word.
-5. Confirm that a **Patent Tools** tab appears in the Ribbon when you open a Word document.
-
-A common Startup path on Windows is:
-
-```
-C:\Users\<YourUserName>\AppData\Roaming\Microsoft\Word\STARTUP
-```
-
-The exact folder can be checked in Word under:
-
-```
-File -> Options -> Advanced -> General -> File Locations -> Startup
-```
-
-If the file was downloaded from the internet, Windows may block it. In that case:
-
-1. Right-click `PatentTools.dotm`.
-2. Choose **Properties**.
-3. If shown, click **Unblock**.
-4. Click **Apply** and **OK**.
-
-## How to use
-
-1. Open Word.
-2. Open the **Patent Tools** tab.
-3. Click **Settings** and configure the endpoint.
-4. Prepare a reference-sign table in any format that would be understood by our model.
-5. Select the relevant claim text in your currently open document, or leave nothing selected to process the full document (not recommended)
-6. Click **Insert reference signs** in the Patent Tools ribbon.
-7. Paste the previously prepared reference sign table into the dialog. **Please note**: If you use a smart model, you may also add any special prompts in difficult cases where the model should pay attention on how to do things the way you want.
-8. The status bar (windows button shows elapsed time to indicate work in progress).
-9. Review the inserted changes in Track Changes mode.
+All models were tested at NVFP4/MXFP4 quantization, with the exception of Gemma-4 12b, for which an integer Q4 quant was used.
 
 ## Endpoint requirements
 
-Patent Tools expects an **OpenAI-compatible** chat-completions API. The macro currently posts to:
+Patent Tools expects an **OpenAI-compatible** chat-completions API. Testing was performed mainly with a llama.cpp endpoint, and in fact the tool supports some option features only offered by llama.cpp in regards to progress monitoring. However, Patent Tools also supports VLLM, Ollama, LM Studio and any other OpenAI compatible endpoint. The macro currently posts to:
 
 ```
 <base-url>/v1/chat/completions
@@ -163,22 +157,6 @@ Authorization: Bearer <API key>
 ```
 
 If the API key field is blank, no Authorization header is sent.
-
-## Recommended local setup
-
-A practical confidential setup is:
-
-- Microsoft Word with `PatentTools.dotm` in the Startup folder.
-- A local OpenAI-compatible server, such as `llama.cpp` or Ollama.
-- A model validated for this workflow, such as gemma-4 26b in non-thinking mode.
-
-Example base URL (this is for ollama on your own computer):
-
-```
-http://127.0.0.1:11434
-```
-
-The add-in will normalize the base URL and call the chat-completions endpoint at `/v1` automatically.
 
 ## Troubleshooting
 
@@ -207,6 +185,10 @@ This error message occurs when the model outputs extra words or otherwise reorde
 ### During processing I see "Model is thinking", but I disabled "Thinking" in the settings
 
 This should not happen with the validated Gemma and Qwen models. The reason is probably that you are using a thinking-only model or a model that dues not support disabling thinking using ```chat_template_kwargs```. Note that when you disable thinking in the settings, PatentTools will also pass ```reasoning_effort: low```. Some models, such as gpt-oss, will be cause by this to "think less" when thinking is disabled in settings, and to "think more" when thinking is enabled. Compare the time required for thinking between both scenarios to see whether ticking and unticking "thinking" has this effect on your model.
+
+### Messages about truncated JSON or non-readable JSON when trying to insert reference signs
+
+If this occurs only intermittently, check your network connectivity and/or increase timeout values. If it always happens, switch to a model from the list of validated models above.
 
 ### Repository contents
 
@@ -271,11 +253,19 @@ This project currently provides a working Word add-in with:
 
 - a custom Ribbon tab,
 - a settings dialog,
-- persistent user configuration,
-- and a claim-processing workflow validated with gemma-4 31b, qwen-3.8 27b and gpt-oss-120b
+- a dialog for generating, entering or editing a reference sign list and
+- a button to insert reference signs into a highlighted area of the document, such as claims.
 
 ## Todo
-This was a project for my own needs and is considered finished for as long as I am happy with it. However, I am also  to develop it further and help others if I see there is demand. Buy me a coffee to incrase my motiviation!
+This was a project for my own needs and is considered finished for as long as I am happy with it. However, I will be happy to develop it further and help others if I see there is demand. Buy me a coffee to increase my motivation!
+
+The main line of development for reference sign insertion would be further optimization of the system prompts and more fuzzy matching in the matching algorithm, tests with further models etc.
+
+Other features for the near feature would be a quality report that checks consistent use of reference signs and other issues.
+
+A live chat with the document would be nice but is likely out of scope due to VBA limitations.
+
+Ultimately, a signed plugin with an installer would increase usability by end-users.
 
 ## Support
 You can support the developer by buying him a coffee. One-time and regular donations are very welcome: [Buy me a coffee](buymeacoffee.com/tftranslate).
