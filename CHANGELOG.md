@@ -4,12 +4,12 @@ All notable changes to PatentTools for Microsoft Word are documented in this fil
 
 The project uses semantic-style versioning while it remains in pre-1.0 development.
 
-## [0.2.0-beta]
+## [0.2.0] - 2026-08-27
 ### Added
 - Populate list of reference signs based on description. Go to "Edit reference sign list", click on "Populate".
 - Table of reference signs is now persistent on a document level.
 - Verification of API connection and auto-detection of available models
-- Call model in streaming mode for better progress feedback while the model is working
+- Call model in streaming mode for better progress feedback while the model is working.
 - System prompts are now user-editable, and settings including prompts can now be exported and imported into/from JSON txt files.
 - Support for gpt-oss-120b: Setting thinking to off translates to low reasoning effort for this model..
 
@@ -25,10 +25,6 @@ The project uses semantic-style versioning while it remains in pre-1.0 developme
 ## Fixed
 
 - Unicode processing should now work on Mac.
-
-### TBD
-
-- Export and Import settings.
 
 ## [0.1.1] - 2026-08-17
 
