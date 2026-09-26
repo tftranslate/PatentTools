@@ -2,7 +2,7 @@
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-Patent Tools is a Microsoft Word `.dotm` add-in for connecting Microsoft Word to a locally or remotely deployed OpenAI compatible OpenAI-compatible language model endpoint and using the model to perform certain tasks that repeatedly occur in patent attorney practice.
+Patent Tools is a Microsoft Word `.dotm` add-in for connecting Microsoft Word to a locally or remotely deployed OpenAI-compatible language model endpoint and using the model to perform certain tasks that repeatedly occur in patent attorney practice.
 
 At the present time, Patent Tools supports auto-generation and editing of reference sign lists and smart insertion of the reference signs into claim text. Unlike existing solutions, it supports any language supported by the model and will happily deal with inflected languages such as German, Ukrainian and others, as well as with difficult cases where reference signs depend on context. It is packaged as a self-contained Word template add-in with a custom Ribbon tab.
 
