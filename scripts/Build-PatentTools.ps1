@@ -1,11 +1,24 @@
 [CmdletBinding()]
 param(
-    [string]$OutputPath
+    [string]$OutputPath,
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+
+# Read version from VERSION file if not provided
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $versionFile = Join-Path $root "VERSION"
+    if (Test-Path $versionFile) {
+        $Version = Get-Content $versionFile -Raw | Select-Object -First 1 | ForEach-Object { $_.Trim() }
+        Write-Host "Version from VERSION file: $Version" -ForegroundColor Gray
+    }
+    else {
+        throw "VERSION file not found at $versionFile"
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $root "build\PatentTools.dotm"
@@ -13,6 +26,18 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
 
 $baseDotm = Join-Path $root "template\PatentTools.base.dotm"
 $vbaDir = Join-Path $root "source\vba"
+
+# Update version in VBA source files before import (this change is permanent)
+$vbaConfigFile = Join-Path $vbaDir "modPatentToolsconfig.bas"
+if (Test-Path $vbaConfigFile) {
+    Write-Host "Updating version in VBA sources to: $Version" -ForegroundColor Gray
+    $content = Get-Content $vbaConfigFile -Raw
+    # Build replacement string with proper double quotes for VBA syntax
+    $replacement = 'Public Const TOOL_VERSION As String = "' + $Version + '"'
+    $content = $content -replace 'Public Const TOOL_VERSION As String = ".*?"', $replacement
+    Set-Content -Path $vbaConfigFile -Value $content -Encoding ASCII
+    Write-Host '  Version updated in source file (permanent)' -ForegroundColor Gray
+}
 $ribbonDir = Join-Path $root "source\ribbon\customUI"
 $packageDir = Join-Path $root "source\package"
 $buildDir = Split-Path -Parent $OutputPath
@@ -165,3 +190,4 @@ finally {
 Write-Host ""
 Write-Host "Build erfolgreich abgeschlossen:"
 Write-Host "  $outputPath"
+Write-Host "Version embedded in .dotm: $Version (source file updated)" -ForegroundColor Green

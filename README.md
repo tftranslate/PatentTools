@@ -1,4 +1,4 @@
-# Patent Tools for Microsoft Word v. 0.2.1
+# Patent Tools for Microsoft Word v. 0.2.2
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
@@ -8,7 +8,7 @@ At the present time, Patent Tools supports auto-generation and editing of refere
 
 Flexible programmatic checks make sure that any model hallucinations, omissions or additions other than reference signs are not carried over into the claim set while still picking up on the reference signs. All changes applied to the claim set, i.e. the reference signs inserted, are marked up in track changes mode so you can be sure the model does not modify the claims in any unintended way.
 
-This add-in has been validated to work reasonably well and fast in English as well as non-English languages with sufficiently smart edge models. The target hardware are unified memory systems such as DGX Spark, AMD Strix Halo or a Mac Ultra, or systems with RTX5090 or similar having at least 24 GB VRAM. Also, Patent Tools can be connected to a public or private cloud-based service that provides OpenAI compatible API endpoints.
+This add-in has been validated to work reasonably well and fast in English as well as non-English languages with sufficiently smart edge models. The target hardware are unified memory systems such as DGX Spark, AMD Strix Halo or a Mac Studio, or systems with RTX5090 or similar having at least 24 GB VRAM. Also, Patent Tools can be connected to a public or private cloud-based service that provides OpenAI compatible API endpoints.
 
 Further features may be added in the future.
 
@@ -18,7 +18,11 @@ Further features may be added in the future.
 
 To make the Ribbon and macros available in all Word windows, the `.dotm` must be installed as a **global Word add-in**, not merely opened like a normal template. Word automatically loads `.dotm` templates placed in the Word **Startup** folder at launch.
 
-### Manual installation
+### Automatic installation
+
+Double-click `PatentTools-v0.2.2-Setup.exe` and follow instructions. The installer will place the `.dotm` file in the Word Startup folder. No administrator privileges are required.
+
+### Expert users: Manual installation 
 
 1. Close all Word windows.
 2. Locate Word’s Startup folder.
@@ -123,9 +127,9 @@ This add-in has been validated with and is recommended for use with:
 
 | Model              | thinking for insertion | thinking for population | remarks                                                      |
 | ------------------ | ---------------------- | ----------------------- | ------------------------------------------------------------ |
-| gemma-4 31b        | no                     | yes or no               | thinking on for population improves additional observations  |
-| gemma-4 26b-a4b    | no                     | yes or no               | not as stable as gemma-4 31b, but still very useful          |
-| gemma-4 12b        | no                     | yes or no               | might miss a few signs to insert, but stl useful             |
+| gemma-4 31b        | no                     | yes or no               | Thinking on for population improves additional observations. Do not use thinking for insertion. |
+| gemma-4 26b-a4b    | no                     | yes or no               | Mot as stable as gemma-4 31b, but still very useful.         |
+| gemma-4 12b        | no                     | yes or no               | Might miss a few signs to insert, but still useful.          |
 | gpt-oss-120b       | no                     | no                      | The model always thinks, but "thinking off" sets a low reasoning effort, which is all it takes and is sufficiently fast. Do not enable thinking (medium reasoning effort), it will overthink. |
 | qwen-3.8 27b       | no                     | no                      | Thinking on for population makes observations a bit better but very slow due to overthinking. |
 | qwen-3.5 122b-a10b | no                     | no                      | Performs extremely well even in non-thinking mode.           |
@@ -136,9 +140,7 @@ Models that can**not** be recommended unconditionally include:
 | ---------------- | ------------------------------------------------------------ |
 | gemma-4 e4b      | Thinking mode control works only in the native llama.cpp call path due to a known model bug. In the standard OpenAI call path, it always thinks and slows down. Only use with llama.cpp calling path. Do not expect wonders from this model, insertions may be incomplete, further observations in the reference sign list may not be very helpful. |
 | qwen-3.6-35b-a3b | Results were unsatisfactory. Population works, but insertion is not reliable. Maybe some prompt tweaking could help. But for this specific task, there are better options. |
-| lfm2.5-2.5b      | It is impossible to turn thinking off for this model and on any hardware on which you would run such a small model, this means it takes far too long to ge any job done. |
-
-
+| lfm2.5-2.5b      | It is impossible to turn thinking off for this model and on any hardware on which you would run such a small model, this means it takes far too long to get any job done. |
 
 As a rule of thumb, try in non-thinking mode first. Test with the insertion feature as it is much more demanding than the population feature. Only activate thinking if you need it. Thinking does not necessarily increase accuracy for this type of task. The key model quality is precise reproduction of the claims. Dense model perform better here than equally sized MoE models. 
 

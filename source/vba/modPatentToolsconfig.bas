@@ -26,7 +26,7 @@ Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
 ' Tool release version.
-Public Const TOOL_VERSION As String = "0.2.1"
+Public Const TOOL_VERSION As String = "0.2.2"
 
 ' Single source of truth: factory-default values for all globally persisted settings.
 Private Const DEF_ApiUrl      As String    = "http://localhost:11434"
@@ -62,6 +62,7 @@ Public Function DEF_PromptInsert() As String
     s = s & "You are editing patent claims." & vbLf
     s = s & "Your task is to reproduce each paragraph exactly, preserving wording, numbering, punctuation, capitalization, and spacing as much as possible." & vbLf
     s = s & "Only insert reference signs in parentheses after the corresponding claim features." & vbLf
+	s = s & "For method claims, insert the reference sign of the respective method step after the first verb form occuring in the feature." & vbLF 
     s = s & "If the same term has multiple reference signs, add the first/lowest reference sign if the term is in singular, and add all reference signs as a comma-separated list inside parentheses if the term is in plural." & vbLf
     s = s & "The reference sign table may comprise further prompts for you to consider." & vbLf
     s = s & "Do not explain anything." & vbLf
@@ -937,6 +938,18 @@ Public Function FetchModelList(ByVal rawApiUrl As String, ByRef modelNames As Co
     
     ' success: caller selects the first item and displays the green status line.
 End Function
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

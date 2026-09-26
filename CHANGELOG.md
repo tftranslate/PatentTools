@@ -4,6 +4,16 @@ All notable changes to PatentTools for Microsoft Word are documented in this fil
 
 The project uses semantic-style versioning while it remains in pre-1.0 development.
 
+## [0.2.2] - 2026-09-26
+
+### Added
+
+- Installer executable for one-click installation.
+
+### Changed
+
+- Amended the default population prompt with an instruction to cover method steps. You need to reset settings to default to pull the latest prompts.
+
 ## [0.2.1] - 2026-08-28
 
 ### Added
