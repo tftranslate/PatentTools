@@ -20,7 +20,7 @@ To make the Ribbon and macros available in all Word windows, the `.dotm` must be
 
 ### Automatic installation
 
-Download the [executable installer](/releases/download/v0.2.2/PatentTools-v0.2.2-Setup.exe).
+Download the [executable installer](https://github.com/tftranslate/PatentTools/releases/download/v0.2.2/PatentTools-v0.2.2-Setup.exe).
 
 Double-click `PatentTools-v0.2.2-Setup.exe` and follow instructions. The installer will place the `.dotm` file in the Word Startup folder. No administrator privileges are required.
 
