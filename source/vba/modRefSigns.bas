@@ -117,7 +117,7 @@ Public Sub Insert_Reference_Signs()
         
         If gLlamaNative Then
             Dim hasApi As Boolean
-            hasApi = PT_HasNativeProgressApi(baseUrl)
+            hasApi = PT_HasNativeProgressApi(baseUrl, gApiKey)
             routeDebug = routeDebug & "Server supports /apply-template: " & IIf(hasApi, "Yes", "No") & vbCrLf
             
             If Not hasApi Then
@@ -131,7 +131,7 @@ Public Sub Insert_Reference_Signs()
     End If
 
     If gLlamaNative Then
-        If PT_HasNativeProgressApi(baseUrl) Then
+        If PT_HasNativeProgressApi(baseUrl, gApiKey) Then
             If PT_ApplyTemplate(baseUrl, _
                     BuildMessagesArrayJson(systemPrompt, userMessage), _
                     gApiKey, gTimeoutSec, renderedPrompt, streamError, _
@@ -421,7 +421,7 @@ Public Function Populate_Reference_Sign_Table() As String
         
         If gLlamaNative Then
             Dim hasApiPop As Boolean
-            hasApiPop = PT_HasNativeProgressApi(baseUrl)
+            hasApiPop = PT_HasNativeProgressApi(baseUrl, gApiKey)
             popRouteDebug = popRouteDebug & "Server supports /apply-template: " & IIf(hasApiPop, "Yes", "No") & vbCrLf
             
             If Not hasApiPop Then
@@ -435,7 +435,7 @@ Public Function Populate_Reference_Sign_Table() As String
     End If
 
     If gLlamaNative Then
-        If PT_HasNativeProgressApi(baseUrl) Then
+        If PT_HasNativeProgressApi(baseUrl, gApiKey) Then
             If PT_ApplyTemplate(baseUrl, _
                     BuildMessagesArrayJson(systemPrompt, userMessage), _
                     gApiKey, gTimeoutSecPopulate, renderedPrompt, streamError, _

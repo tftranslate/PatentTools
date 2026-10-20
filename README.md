@@ -1,4 +1,4 @@
-# Patent Tools for Microsoft Word v. 0.2.2
+# Patent Tools for Microsoft Word v. 0.2.3
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 

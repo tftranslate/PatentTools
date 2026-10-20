@@ -166,6 +166,7 @@ Private m_spinIndex As Long
 ' for the lifetime of the Word session. Not persisted: the user may stop Ollama
 ' and start llama-server on the same port between sessions.
 Private m_probeBase As String
+Private m_probeKey As String
 Private m_probeDone As Boolean
 Private m_probeNative As Boolean
 
@@ -1536,29 +1537,38 @@ End Function
 '=======================================================================
 
 ' True if the base URL is a llama.cpp server exposing the native API.
-Public Function PT_HasNativeProgressApi(ByVal baseUrl As String) As Boolean
+Public Function PT_HasNativeProgressApi(ByVal baseUrl As String, ByVal apiKey as String) As Boolean
     Dim body As String
     Dim errText As String
+	Dim key As String
+	
+	key = Trim§(apiKey)
 
-    If m_probeDone And StrComp(m_probeBase, baseUrl, vbTextCompare) = 0 Then
+    If m_probeDone And StrComp(m_probeBase, baseUrl, vbTextCompare) = 0 And StrComp (m_ProbeKey, key, vbBinaryCompare) = 0 Then
         PT_HasNativeProgressApi = m_probeNative
         Exit Function
     End If
-
-    m_probeBase = baseUrl
-    m_probeDone = True
-    m_probeNative = False
 
     Application.StatusBar = "Checking what the server at " & baseUrl & " supports ..."
     DoEvents
 
     ' Short timeout: this must never be the reason a call feels slow.
-    If PT_HttpJson("GET", baseUrl & "/props", "", "", 5, body, errText) Then
-        ' Ollama has no /props at all. llama.cpp always reports build_info,
-        ' and chat_template confirms a chat-capable model is loaded.
-        m_probeNative = (InStr(1, body, """build_info""", vbBinaryCompare) > 0) _
-                    And (InStr(1, body, """chat_template""", vbBinaryCompare) > 0)
+    If Not PT_HttpJson("GET", baseUrl & "/props", "", key, 5, body, errText) Then
+        ' The probe could not be made at all - connection refused, TLS problem,
+        ' or the gateway refused the credentials. That is not an answer about the
+        ' native API, so nothing is cached and the next call probes again.
+        PT_HasNativeProgressApi = False
+        Exit Function
     End If
+
+    m_probeBase = baseUrl
+	m_probeKey = key
+    m_probeDone = True
+
+    ' Ollama has no /props at all. llama.cpp always reports build_info,
+    ' and chat_template confirms a chat-capable model is loaded.
+    m_probeNative = (InStr(1, body, """build_info""", vbBinaryCompare) > 0) _
+                And (InStr(1, body, """chat_template""", vbBinaryCompare) > 0)
 
     PT_HasNativeProgressApi = m_probeNative
 End Function

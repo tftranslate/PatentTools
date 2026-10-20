@@ -4,6 +4,14 @@ All notable changes to PatentTools for Microsoft Word are documented in this fil
 
 The project uses semantic-style versioning while it remains in pre-1.0 development.
 
+
+
+## [0.2.3] - 2026-10-20
+
+### Fixed
+
+- Entered API key was not used in configuration dialog, so a configuration with API key could not be confirmed and the tool was unusable when an API key was required.
+
 ## [0.2.2] - 2026-09-26
 
 ### Added

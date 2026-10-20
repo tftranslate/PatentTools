@@ -26,7 +26,7 @@ Private Const APP_NAME As String = "PatentTools"
 Private Const SECTION_NAME As String = "Settings"
 
 ' Tool release version.
-Public Const TOOL_VERSION As String = "0.2.2"
+Public Const TOOL_VERSION As String = "0.2.3"
 
 ' Single source of truth: factory-default values for all globally persisted settings.
 Private Const DEF_ApiUrl      As String    = "http://localhost:11434"
@@ -792,7 +792,7 @@ Public Sub Patent_Tools_Settings()
     frmPatentToolsSettings.Show
 End Sub
 
-Public Function FetchModelList(ByVal rawApiUrl As String, ByRef modelNames As Collection, ByRef errorText As String) As Boolean
+Public Function FetchModelList(ByVal rawApiUrl As String, ByVal apiKey As String, ByRef modelNames As Collection, ByRef errorText As String) As Boolean
     Dim base As String
     Dim url As String
     Dim http As Object
@@ -837,22 +837,38 @@ Public Function FetchModelList(ByVal rawApiUrl As String, ByRef modelNames As Co
     http.SetTimeouts 5000, 8000, 5000, recvMs
     
     On Error Resume Next
+	
+	Err.Clear
     http.Open "GET", url, False
     If Err.Number <> 0 Then
+		Err.Clear
+		On Error Goto 0
         errorText = "Could not reach the server at this URL."
         Exit Function
     End If
-    If Len(Trim$(gApiKey)) > 0 Then
-        http.SetRequestHeader "Authorization", "Bearer " & Trim$(gApiKey)
+	
+    If Len(Trim$(apiKey)) > 0 Then
+	    Err.Clear
+        http.SetRequestHeader "Authorization", "Bearer " & Trim$(apiKey)
+		If Err.Number <> 0 Then
+            Err.Clear
+            On Error GoTo 0
+            errorText = "The API key could not be sent to the server."
+            Exit Function
+        End If
     End If
+	
+	Err.Clear
     http.Send
     If Err.Number <> 0 Then
+	    Err.Clear
+		On Error Goto 0
         errorText = "The request for the model list failed."
         Exit Function
     End If
     On Error GoTo 0
     
-    If CInt(http.Status) <> 200 Then
+    If CInt(http.Status) >= 300 Then
         If http.Status = 401 Or http.Status = 403 Then
             errorText = "Access denied (HTTP " & CStr(http.Status) & "). Check URL and API key."
         ElseIf http.Status = 404 Then
@@ -938,6 +954,7 @@ Public Function FetchModelList(ByVal rawApiUrl As String, ByRef modelNames As Co
     
     ' success: caller selects the first item and displays the green status line.
 End Function
+
 
 
 

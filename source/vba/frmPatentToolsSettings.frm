@@ -588,7 +588,7 @@ Private Sub FetchModelsFromAPI()
     persistedModel = Trim$(gModelName)
 
     On Error Resume Next
-    If FetchModelList(Trim$(txtApiUrl.Text), modelNames, errText) Then
+    If FetchModelList(Trim$(txtApiUrl.Text), Trim$(txtApiKey.Text), modelNames, errText) Then
         On Error GoTo 0
 
         ' Success: replace dropdown with server list
